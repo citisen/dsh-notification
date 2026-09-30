@@ -62,7 +62,6 @@ const ENVELOPE_EXPORTS = [
   'createRowStore',
   'readSources',
   'readVisibility',
-  'focusSession',
   'installStyles',
   'installEngine',
   // states.js
@@ -94,18 +93,11 @@ const ENVELOPE_EXPORTS = [
   'periodicWave',
   'createPlayer',
   // system.js
-  'permissionState',
-  'requestPermission',
-  'notificationOptions',
-  'createNotifier',
   // engine.js
-  'BANNER_BODY_LIMIT',
   'planEvent',
-  'buildBanner',
   'createSpeechLog',
   'gapElapsed',
   'firstAudible',
-  'allBannered',
   'describePlan',
   // settings.js
   'SOUND_SCOPES',
@@ -123,11 +115,6 @@ const ENVELOPE_EXPORTS = [
   'stateGain',
   'stateVoice',
   // templates.js
-  'TEMPLATE_FIELDS',
-  'renderTemplate',
-  'unknownFields',
-  'fitLine',
-  'clockTime',
 ]
 
 /**

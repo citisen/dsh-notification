@@ -176,13 +176,16 @@ test('a card with both channels off is switched off, not redirected', () => {
   assert.deepEqual(outcome, { allowed: false, reason: 'no-channel' })
 })
 
-test('turning the bell channel off leaves the banner channel working', () => {
-  const settings = resolveSettings({ soundScope: 'off' })
-  // `admit` still allows the event: it is a notification, not a sound. Whether the banner
-  // channel is live is passed as a fact, because that is a separate question — and the one that
-  // decides this answer.
-  assert.equal(admit('question', settings, { notificationsEnabled: true }).allowed, true)
-  assert.equal(soundAllowed(settings, { visible: false, focused: false }), false)
+test('a card with nothing it could do is switched off rather than admitted and silent', () => {
+  // "Nothing it could do" is now exactly one condition, because there is one channel: the bell is off,
+  // either on the card or for every card at once. Admitting it would report the state as on while
+  // nothing happens about it.
+  assert.equal(admit('question', resolveSettings({ soundScope: 'off' }), {}).reason, 'no-channel')
+  assert.equal(admit('question', resolveSettings({ states: { question: { sound: false } } }), {}).reason, 'no-channel')
+  // And a card that still has its bell is unaffected by either of the above.
+  assert.equal(admit('question', resolveSettings({}), {}).allowed, true)
+  // Per *state*, not per call: another state's bell being off says nothing about this one.
+  assert.equal(admit('question', resolveSettings({ states: { done: { sound: false } } }), {}).allowed, true)
 })
 
 test('the two channels are switched off independently, and a card with neither is off', () => {
@@ -272,27 +275,18 @@ test('a state whose voice is unknown falls back to that state’s own shipped vo
 })
 
 test('the shipped cards are configured the way the documentation claims', () => {
-  // The three states that mean "a person must act" raise a banner; the two that
-  // do not, do not. This is the one default a reader is most likely to check.
-  for (const kind of ['question', 'approval', 'plan', 'failed']) {
-    assert.equal(STATE_DEFAULTS[kind].notification, true, `${kind} should raise a banner`)
+  // The states that mean "a person must act" ship enabled; the one that does not, does not. This is
+  // the default a reader is most likely to check against the table in the README.
+  for (const kind of ['question', 'approval', 'plan', 'failed', 'done']) {
     assert.equal(STATE_DEFAULTS[kind].enabled, true, `${kind} should ship enabled`)
+    assert.equal(STATE_DEFAULTS[kind].sound, true, `${kind} should ship with its bell on`)
   }
-  assert.equal(STATE_DEFAULTS.done.notification, false)
-  assert.equal(STATE_DEFAULTS.running.notification, false)
   assert.equal(STATE_DEFAULTS.running.enabled, false, 'a turn starting is not worth an interruption')
-  // Every shipped melody must be a real melody: the sound tests prove the
-  // grammar, this proves nobody wrote a placeholder into a default.
+
+  // Every shipped melody must be a real melody: the sound tests prove the grammar, this proves nobody
+  // wrote a placeholder into a default.
   for (const kind of STATE_KINDS) {
     assert.ok(STATE_DEFAULTS[kind].melody.length > 0)
-    assert.ok(STATE_DEFAULTS[kind].title.length > 0)
-  }
-  // And every shipped template must use only the documented placeholders. Without this,
-  // every card opens with a warning about its own correct text — a warning that fires on
-  // everything teaches the user to ignore the one that matters.
-  for (const kind of STATE_KINDS) {
-    assert.deepEqual(unknownFields(STATE_DEFAULTS[kind].title), [], `${kind} title placeholders`)
-    assert.deepEqual(unknownFields(STATE_DEFAULTS[kind].body), [], `${kind} body placeholders`)
   }
 })
 
@@ -346,14 +340,11 @@ test('the failed and running phrases are the classical quotations they claim to 
   }
 })
 
-test('the notification channel ships switched off', () => {
-  // The hard-coded switch, asserted where it is declared rather than only where it is used.
-  assert.equal(NOTIFICATIONS_ENABLED, false)
-  // The per-state banner preferences are still recorded, so turning the channel back on restores
-  // the shipped intent instead of a blank configuration — which is the whole reason the field and
-  // its four `true`s were kept rather than deleted.
-  assert.equal(STATE_DEFAULTS.question.notification, true)
-  assert.equal(STATE_DEFAULTS.approval.notification, true)
-  assert.equal(STATE_DEFAULTS.plan.notification, true)
-  assert.equal(STATE_DEFAULTS.failed.notification, true)
+test('the notification channel is declared off, and nothing live depends on it', () => {
+  // The switch, asserted where it is declared rather than only where it is used. `settings.js` is the
+  // one place it lives; `engine.test.mjs` proves the engine plans a sound and nothing else, and
+  // `verify-client` proves the code it would have enabled is not in the shipped bundle at all. What
+  // this test adds is the declaration itself, so that deleting the switch is a deliberate change
+  // rather than something that happens while tidying.
+  assert.equal(NOTIFICATIONS_ENABLED, false, 'the notification channel ships switched off')
 })

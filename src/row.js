@@ -34,8 +34,7 @@
 
 import React from 'react'
 import { STATE_KINDS } from './states.js'
-import { NOTIFICATIONS_ENABLED, SOUND_SCOPES, STATE_DEFAULTS, resolveSettings } from './settings.js'
-import { TEMPLATE_FIELDS, unknownFields } from './templates.js'
+import { SOUND_SCOPES, STATE_DEFAULTS, resolveSettings } from './settings.js'
 import { VOICES, VOICE_NAMES } from './sound.js'
 
 /** The element factory, aliased because `h` reads better than `React.createElement`. */
@@ -123,9 +122,8 @@ export const ROW_CSS = [
   // A channel's own controls, indented under the switch that turns them on: the indentation is what
   // says "these belong to that switch" without a second heading.
   `.${cn('group')}{flex-direction:column;gap:6px;border-left:2px solid var(--dsw-alias-border-l2);padding-left:10px;display:flex}`,
-  // The last test's outcome. It is the only surface that can say why a banner did not appear, so it
-  // renders at normal weight in the secondary colour rather than as a warning: a refusal is
-  // information, not a fault.
+  // The last test's outcome. It renders at normal weight in the secondary colour rather than as a
+  // warning: a state that would do nothing is information, not a fault.
   `.${cn('result')}{color:var(--dsw-alias-label-secondary);font-size:11px;line-height:16px;overflow-wrap:anywhere}`,
 ].join('')
 
@@ -150,11 +148,6 @@ export const zh = {
   'notification.voice': '音色',
   'notification.melody': '旋律',
   'notification.melodyHint': '音名加时值，例如 A5:200ms E6:200ms；off 表示不出声',
-  'notification.notification': '系统通知',
-  'notification.bannerTitle': '通知标题',
-  'notification.bannerBody': '通知正文',
-  'notification.templateHint': '可用字段：',
-  'notification.unknownField': '这个字段不认识，会原样显示',
   'notification.audition': '试听',
   'notification.test': '测试通知',
   'notification.reset': '恢复默认',
@@ -168,21 +161,6 @@ export const zh = {
   'notification.repeat': '同一状态的最短重复间隔',
   'notification.skipFocused': '不要提醒我正在看的那个会话',
   'notification.skipVisible': '窗口在前台时完全安静',
-  'notification.desktopNotifications': '允许系统通知',
-  'notification.permission': '系统通知权限',
-  'notification.permission.granted': '已授权',
-  'notification.permission.denied': '已被拒绝 —— 需要在系统设置里允许',
-  'notification.permission.default': '尚未询问',
-  'notification.permission.unsupported': '这个环境不支持系统通知',
-  'notification.permission.hint': '提示权限由系统决定：在 Windows 的「设置 → 系统 → 通知」里允许本应用。这个插件无法弹出授权请求 —— 系统会直接拒绝。',
-  'notification.testResult.shown': '已发出 —— 如果你没看到横幅，是系统把它拦下了（专注助手或通知设置）',
-  'notification.testResult.empty': '标题是空的，没有发出',
-  'notification.testResult.threw': '系统拒绝了这条通知',
-  'notification.testResult.denied': '已尝试；如果没看到横幅，去系统通知设置里允许本应用',
-  'notification.testResult.default': '已尝试；系统权限尚未授予，若没看到横幅请去系统设置里允许',
-  'notification.testResult.unsupported': '这个环境不支持系统通知',
-  'notification.testResult.skipped': '这次不会触发',
-  'notification.testResult.silent': '没有通道会响应',
   'notification.testResult.skipped': '这次不会触发',
   'notification.testResult.silent': '没有通道会响应',
   'notification.audio': '音频',
@@ -203,68 +181,47 @@ export const zh = {
 
 /** English dictionary, checked complete against the `zh` key set by the tests. */
 export const en = {
-  'notification.title': 'Session notifications',
-  'notification.description':
-    'Tells you when a session changes state — one card per state, each deciding whether to sound, how loud, and in what timbre',
-  'notification.master': 'Master switch',
-  'notification.masterHint': 'Switched off, no card sounds',
-  'notification.globals': 'Global settings',
-  'notification.cards': 'State cards',
-  'notification.enabled': 'Alert for this state',
-  'notification.sound': 'Play a sound',
-  'notification.volume': 'Volume',
-  'notification.voice': 'Timbre',
-  'notification.melody': 'Melody',
-  'notification.melodyHint': 'note names with lengths, e.g. A5:200ms E6:200ms; off for silence',
-  'notification.notification': 'System notification',
-  'notification.bannerTitle': 'Notification title',
-  'notification.bannerBody': 'Notification body',
-  'notification.templateHint': 'available fields: ',
-  'notification.unknownField': 'this field is not known, so it is shown as written',
-  'notification.audition': 'Play',
-  'notification.test': 'Test notification',
-  'notification.reset': 'Reset',
-  'notification.masterVolume': 'Master volume',
-  'notification.masterVolumeHint': 'multiplied by each card’s own level',
-  'notification.soundScope': 'When sound plays',
-  'notification.soundScope.off': 'never',
-  'notification.soundScope.background': 'while the window is not in front',
-  'notification.soundScope.always': 'always',
-  'notification.minGap': 'Minimum gap between sounds',
-  'notification.repeat': 'Do not repeat the same state within',
-  'notification.skipFocused': 'Stay quiet about the session I am looking at',
-  'notification.skipVisible': 'Stay completely quiet while the window is in front',
-  'notification.desktopNotifications': 'Allow system notifications',
-  'notification.permission': 'System notification permission',
-  'notification.permission.granted': 'granted',
-  'notification.permission.denied': 'refused — allow it in your system settings',
-  'notification.permission.default': 'not asked yet',
-  'notification.permission.unsupported': 'this environment has no system notifications',
-  'notification.permission.hint': 'The system decides this: allow this application under Windows Settings → System → Notifications. This plugin cannot raise a permission prompt — the platform refuses it outright.',
-  'notification.testResult.shown': 'sent — if you saw no banner, the system suppressed it (focus assist or notification settings)',
-  'notification.testResult.empty': 'the title is empty, so nothing was sent',
-  'notification.testResult.threw': 'the system refused the notification',
-  'notification.testResult.denied': 'attempted; if you saw no banner, allow this app in your system notification settings',
-  'notification.testResult.default': 'attempted; the system permission is not granted, so allow this app in your system settings if no banner appeared',
-  'notification.testResult.unsupported': 'this environment has no system notifications',
-  'notification.testResult.skipped': 'nothing would happen for this state',
-  'notification.testResult.silent': 'neither channel would respond',
-  'notification.testResult.skipped': 'nothing would happen for this state',
-  'notification.testResult.silent': 'neither channel would respond',
-  'notification.audio': 'Audio',
-  'notification.audio.locked': 'audio is still locked — press Play once to unlock it',
-  'notification.audio.unavailable': 'no Web Audio here, so only system notifications are available',
-  'notification.audio.running': 'audio ready',
-  'notification.audio.uninitialized': 'audio not initialized yet',
-  'notification.problems': 'These cannot be read:',
-  'notification.ms': 'ms',
-  'notification.cardCount': '{count} session(s) in this state',
-  'notification.state.question': 'Waiting for an answer',
-  'notification.state.approval': 'Waiting for approval',
-  'notification.state.plan': 'Waiting for a plan review',
-  'notification.state.failed': 'Ended with an error',
-  'notification.state.done': 'Finished',
-  'notification.state.running': 'Started',
+  'notification.title': "Session notifications",
+  'notification.description': "Tells you when a session changes state — one card per state, each deciding whether to sound, how loud, and in what timbre",
+  'notification.master': "Master switch",
+  'notification.masterHint': "Switched off, no card sounds",
+  'notification.globals': "Global settings",
+  'notification.cards': "States",
+  'notification.enabled': "Alert for this state",
+  'notification.sound': "Play a sound",
+  'notification.volume': "Volume",
+  'notification.voice': "Timbre",
+  'notification.melody': "Melody",
+  'notification.melodyHint': "note names with lengths, e.g. A5:200ms E6:200ms; off for silence",
+  'notification.audition': "Play",
+  'notification.test': "Test",
+  'notification.reset': "Reset",
+  'notification.masterVolume': "Master volume",
+  'notification.masterVolumeHint': "multiplied by each card's own level",
+  'notification.soundScope': "When sound plays",
+  'notification.soundScope.off': "never",
+  'notification.soundScope.background': "while the window is not in front",
+  'notification.soundScope.always': "always",
+  'notification.minGap': "Minimum gap between sounds",
+  'notification.repeat': "Do not repeat the same state within",
+  'notification.skipFocused': "Stay quiet about the session I am looking at",
+  'notification.skipVisible': "Stay completely quiet while the window is in front",
+  'notification.testResult.skipped': "nothing would happen for this state",
+  'notification.testResult.silent': "neither channel would respond",
+  'notification.audio': "Audio",
+  'notification.audio.locked': "audio is still locked — press Play once to unlock it",
+  'notification.audio.unavailable': "no Web Audio here, so nothing can play",
+  'notification.audio.running': "audio ready",
+  'notification.audio.uninitialized': "audio not initialized yet",
+  'notification.problems': "These cannot be read:",
+  'notification.ms': "ms",
+  'notification.cardCount': "{count} session(s) in this state",
+  'notification.state.question': "Waiting for an answer",
+  'notification.state.approval': "Waiting for approval",
+  'notification.state.plan': "Waiting for a plan review",
+  'notification.state.failed': "Ended with an error",
+  'notification.state.done': "Finished",
+  'notification.state.running': "Started",
 }
 
 /**
@@ -413,39 +370,22 @@ function Choice({ t, labelKey, value, options, onChange, describe }) {
 /**
  * One state's card.
  *
- * Three things keep this from being a wall of controls, and each is an answer to a
- * concrete complaint rather than a preference.
+ * **The bell's controls appear only while the bell is on.** The volume, the timbre and the melody
+ * are meaningless with the sound switched off, and showing them would bury the switch that turns it
+ * back on.
  *
- * **A channel's controls appear only when that channel is on.** The volume slider, the timbre
- * and the melody belong to the bell; the two template fields belong to the banner. Rendering them
- * while their switch is off asks the user to configure something that cannot happen, and it buries
- * the switch that would fix it.
+ * **The test result is printed, not logged.** Pressing *Test* answers what this state would do right
+ * now, and the answer is a sentence the user can act on rather than a line in a console nobody opens.
+ * It is per card, because the state is what was tested and a single row-wide line would be ambiguous
+ * the moment a second card was tried.
  *
- * **A channel that does not exist is not mentioned at all.** `banner` says whether the banner
- * channel is live, and while it is not, neither the switch nor the fields appear. Gating only the
- * *tab* was not enough: the switch lives on every card, so leaving it rendered still offered
- * "系统通知" for a channel that is switched off in code. The test for a disabled feature is that its
- * name appears nowhere, not that one of its two entry points is hidden.
- *
- * **The test result is printed, not logged.** A banner that never appears has several possible
- * causes — a refused permission, a constructor the platform threw, or an operating system deciding
- * not to draw it — and from the outside they are indistinguishable. This card is the only surface
- * that can tell them apart, so it says what happened in words instead of leaving a line in a console
- * nobody opens.
- *
- * **The result is per card**, because the state is what was tested and a single component-wide line
- * would be ambiguous the moment a second card was tried.
- *
- * @param props - `{ t, kind, state, count, defaults, result, banner, onChange, onAudition, onTest }`.
+ * @param props - `{ t, kind, state, count, defaults, result, onChange, onAudition, onTest }`.
  * @returns the card element.
  */
-export function StateCard({ t, kind, state, count, defaults, result, banner, onChange, onAudition, onTest }) {
+export function StateCard({ t, kind, state, count, defaults, result, onChange, onAudition, onTest }) {
   const off = state.enabled !== true
   const melody = typeof state.melody === 'string' ? state.melody : ''
-  const unknown = [...unknownFields(state.title), ...unknownFields(state.body)]
-  const uniqueUnknown = [...new Set(unknown)]
   const soundOn = state.sound === true
-  const bannerOn = state.notification === true && banner === true
   /** Write one field of this card. @param field @param value */
   const set = (field, value) => {
     onChange(kind, field, value)
@@ -499,22 +439,6 @@ export function StateCard({ t, kind, state, count, defaults, result, banner, onC
         },
         labelKey: 'notification.sound',
       }),
-      // The banner channel's own switch, and only while that channel exists. Gating the *tab* was
-      // not enough: this checkbox lives on every card, so leaving it rendered meant each state
-      // still offered "系统通知" for a channel that is switched off in code — the exact control the
-      // user went looking for and found. The right test for a disabled feature is that its name
-      // appears nowhere in the interface, not that one of its two entry points is hidden.
-      banner === true
-        ? Check({
-            t,
-            id: `dsh-notification-${kind}-notification`,
-            checked: bannerOn,
-            onChange: (value) => {
-              set('notification', value)
-            },
-            labelKey: 'notification.notification',
-          })
-        : null,
     ),
 
     // ── the bell, and only the bell's own controls ──────────────────────────
@@ -571,60 +495,7 @@ export function StateCard({ t, kind, state, count, defaults, result, banner, onC
         )
       : null,
 
-    // ── the banner, and only the banner's own controls ──────────────────────
-    // annerOn is false whenever the channel is off, so this whole block — the two template
-    // fields included — disappears with the switch that would have enabled it.
-    bannerOn
-      ? h(
-          'div',
-          { className: cn('group') },
-          h(TextField, {
-            t,
-            labelKey: 'notification.bannerTitle',
-            value: state.title,
-            placeholder: defaults.title,
-            onChange: (value) => {
-              set('title', value)
-            },
-          }),
-          h(TextField, {
-            t,
-            labelKey: 'notification.bannerBody',
-            value: state.body,
-            placeholder: defaults.body,
-            onChange: (value) => {
-              set('body', value)
-            },
-          }),
-          h(
-            'div',
-            { className: cn('tokens') },
-            t('notification.templateHint'),
-            ...TEMPLATE_FIELDS.flatMap((field, index) => [
-              index === 0 ? null : ' · ',
-              h('code', { key: field.name, title: field.hint }, `{${field.name}}`),
-            ]).filter((node) => node !== null),
-          ),
-          uniqueUnknown.length === 0
-            ? null
-            : h(
-                'div',
-                { className: cn('warning') },
-                `${t('notification.unknownField')}: ${uniqueUnknown.map((name) => `{${name}}`).join(', ')}`,
-              ),
-          h(
-            'div',
-            { className: cn('actions') },
-            button(t('notification.test'), () => {
-              onTest(kind)
-            }),
-          ),
-        )
-      : null,
-
-    // The outcome of the last test, in words. This is the only surface that can say why a
-    // banner did not appear, and the difference between a user filing a bug and a user
-    // going to their system notification settings.
+    // The outcome of the last test, in words.
     result === undefined || result === null
       ? null
       : h('div', { className: cn('result'), role: 'status' }, result),
@@ -632,6 +503,9 @@ export function StateCard({ t, kind, state, count, defaults, result, banner, onC
     h(
       'div',
       { className: cn('actions') },
+      button(t('notification.test'), () => {
+        onTest(kind)
+      }),
       button(t('notification.reset'), () => {
         onChange(kind, undefined, undefined, true)
       }),
@@ -645,7 +519,7 @@ export function StateCard({ t, kind, state, count, defaults, result, banner, onC
  * `useNotification` is the store hook the slot registry injects — the plugin's own live
  * configuration, so every control reads what the engine is actually running on rather than a copy
  * this component made. The rest of the props are actions, plus the two pieces of *state* that are
- * not configuration: whether the system will show a banner, and whether audio has been unlocked.
+ * not configuration: whether audio has been unlocked.
  *
  * ## The shape, and the two attempts before it
  *
@@ -722,8 +596,7 @@ export function NotificationRow({
       },
       labelKey: 'notification.master',
     }),
-    settings.enabled === true ? null : h('div', { className: cn('warning') }, t('notification.masterHint')),
-
+    
     // ── every global setting, flat ───────────────────────────────────────────
     //
     // One line each, in one grid, with no heading: they are all "how the plugin behaves", and the
@@ -769,23 +642,20 @@ export function NotificationRow({
           setGlobal('minGapMs', value)
         },
       }),
-      // The repeat limit is a rate limit on the bell while the banner channel is off. It is about
-      // the user's attention rather than about banners, which is why it survives that channel being
-      // switched off at all.
-      NOTIFICATIONS_ENABLED
-        ? null
-        : h(NumberField, {
-            t,
-            labelKey: 'notification.repeat',
-            value: settings.repeatMs,
-            min: 0,
-            max: 60_000,
-            step: 500,
-            suffix: t('notification.ms'),
-            onChange: (value) => {
-              setGlobal('repeatMs', value)
-            },
-          }),
+      // A rate limit on a session that flaps between states: it is about the user's attention, not
+      // about any one channel.
+      h(NumberField, {
+        t,
+        labelKey: 'notification.repeat',
+        value: settings.repeatMs,
+        min: 0,
+        max: 60_000,
+        step: 500,
+        suffix: t('notification.ms'),
+        onChange: (value) => {
+          setGlobal('repeatMs', value)
+        },
+      }),
       h('div', { className: cn('note') }, `${t('notification.audio')}: ${t(audioKey)}`),
     ),
 
@@ -808,28 +678,6 @@ export function NotificationRow({
       labelKey: 'notification.skipVisible',
     }),
 
-    // ── the notification channel, when it exists ─────────────────────────────
-    NOTIFICATIONS_ENABLED
-      ? h(
-          'div',
-          { className: cn('group') },
-          Check({
-            t,
-            id: 'dsh-notification-desktop',
-            checked: settings.desktopNotifications === true,
-            onChange: (value) => {
-              setGlobal('desktopNotifications', value)
-            },
-            labelKey: 'notification.desktopNotifications',
-          }),
-          h(
-            'div',
-            { className: cn('actions') },
-            h('span', { className: cn('note') }, `${t('notification.permission')}: ${t(`notification.permission.${permission?.permission ?? 'unsupported'}`)}`),
-            permission?.permission === 'granted' ? null : h('span', { className: cn('note') }, t('notification.permission.hint')),
-          ),
-        )
-      : null,
 
     // ── the states: a vertical switcher and the card it selects ──────────────
     h(
@@ -871,7 +719,6 @@ export function NotificationRow({
           count: counts[subject],
           defaults: STATE_DEFAULTS[subject],
           result: results?.[subject],
-          banner: NOTIFICATIONS_ENABLED,
           onChange,
           onAudition,
           onTest,

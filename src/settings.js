@@ -93,12 +93,6 @@ export const SOUND_SCOPES = ['off', 'background', 'always']
  * default below 1 means a user who has turned the master up still hears something quieter than
  * they asked for, for no reason they can see. What a user actually wants quieter, they turn
  * down on the card that annoys them.
- *
- * ## The banner switches
- *
- * Retained and correct, but inert while {@link NOTIFICATIONS_ENABLED} is false: a state that
- * wants a banner still records that preference, so turning the channel back on restores the
- * shipped intent rather than a blank configuration.
  */
 export const STATE_DEFAULTS = {
   question: {
@@ -107,9 +101,6 @@ export const STATE_DEFAULTS = {
     volume: 1,
     voice: 'bell',
     melody: 'G4:170ms G4:170ms G4:170ms Eb4:680ms',
-    notification: true,
-    title: '{title} is asking',
-    body: '{summary}',
   },
   approval: {
     enabled: true,
@@ -117,9 +108,6 @@ export const STATE_DEFAULTS = {
     volume: 1,
     voice: 'bell',
     melody: 'A5:350ms G5:95ms F5:95ms E5:95ms D5:95ms C#5:95ms D5:500ms',
-    notification: true,
-    title: '{title} needs a decision',
-    body: '{summary}',
   },
   plan: {
     enabled: true,
@@ -127,9 +115,6 @@ export const STATE_DEFAULTS = {
     volume: 1,
     voice: 'marimba',
     melody: 'C5:120ms E5:120ms G5:120ms C6:420ms',
-    notification: true,
-    title: '{title} has a plan to review',
-    body: 'Read it, then approve or ask for changes.',
   },
   failed: {
     enabled: true,
@@ -139,9 +124,6 @@ export const STATE_DEFAULTS = {
     // tail is what makes six descending notes read as one solemn phrase rather than six blips.
     voice: 'bell',
     melody: 'A4:200ms G4:200ms F4:200ms E4:200ms D4:200ms C4:520ms',
-    notification: true,
-    title: '{title} failed',
-    body: 'The turn ended with an error.',
   },
   done: {
     enabled: true,
@@ -149,9 +131,6 @@ export const STATE_DEFAULTS = {
     volume: 1,
     voice: 'marimba',
     melody: 'E4:230ms E4:230ms F4:230ms G4:230ms G4:230ms F4:230ms E4:230ms D4:460ms',
-    notification: false,
-    title: '{title} finished',
-    body: 'The turn is complete.',
   },
   running: {
     // The one card that ships switched off, and the reason the card exists at all: a turn
@@ -165,9 +144,6 @@ export const STATE_DEFAULTS = {
     // and a short decay, which is exactly the wooden bar.
     voice: 'marimba',
     melody: 'G4:130ms D5:130ms G5:130ms B5:130ms D6:420ms',
-    notification: false,
-    title: '{title} started',
-    body: 'A turn is running.',
   },
 }
 
@@ -190,7 +166,6 @@ export const GLOBAL_DEFAULTS = {
   minGapMs: 1500,
   skipFocusedSession: true,
   skipWhenVisible: false,
-  desktopNotifications: true,
   repeatMs: 0,
 }
 
@@ -212,9 +187,6 @@ export const STATE_FIELDS = [
   { id: 'volume', kind: 'number', min: 0, max: 1, label: 'Volume', hint: 'this state’s own level' },
   { id: 'voice', kind: 'choice', values: VOICE_NAMES, label: 'Timbre', hint: 'what it sounds like' },
   { id: 'melody', kind: 'melody', label: 'Melody', hint: 'note names and lengths; off for silence' },
-  { id: 'notification', kind: 'boolean', label: 'System notification', hint: 'a desktop banner as well' },
-  { id: 'title', kind: 'template', label: 'Notification title', hint: 'the banner’s heading' },
-  { id: 'body', kind: 'template', label: 'Notification body', hint: 'the banner’s text' },
 ]
 
 /** The global field roster, in the order the section lists it. */
@@ -225,7 +197,6 @@ export const GLOBAL_FIELDS = [
   { id: 'minGapMs', kind: 'number', min: 0, max: 30_000, label: 'Minimum gap between sounds', hint: 'milliseconds' },
   { id: 'skipFocusedSession', kind: 'boolean', label: 'Stay quiet about the session you are looking at', hint: 'it is already on screen' },
   { id: 'skipWhenVisible', kind: 'boolean', label: 'Stay quiet while the window is in front', hint: 'no sound and no banner while you are here' },
-  { id: 'desktopNotifications', kind: 'boolean', label: 'Allow system notifications', hint: 'the banner channel' },
   { id: 'repeatMs', kind: 'number', min: 0, max: 600_000, label: 'Do not repeat the same state within', hint: 'milliseconds; 0 for no limit' },
 ]
 
@@ -294,7 +265,6 @@ function resolveRecord(fields, defaults, stored) {
  *
  * @param section - the stored section, or nothing.
  * @returns `{ version, enabled, masterVolume, soundScope, minGapMs,
- *   skipFocusedSession, skipWhenVisible, desktopNotifications, repeatMs, states }`.
  */
 export function resolveSettings(section) {
   const stored = section !== null && typeof section === 'object' ? section : {}
@@ -346,7 +316,7 @@ export function defaultSection() {
  *
  * @param kind - the state the event is about.
  * @param settings - resolved settings.
- * @param facts - `{ isMain, phase, now, lastSpokenAt, notificationsEnabled }`.
+ * @param facts - `{ isMain, now, lastSpokenAt }`.
  * @returns `{ allowed, reason }`: whether anything should happen, and why not.
  */
 export function admit(kind, settings, facts) {
@@ -354,17 +324,10 @@ export function admit(kind, settings, facts) {
   if (settings?.enabled !== true) return { allowed: false, reason: 'master-off' }
   if (state === undefined) return { allowed: false, reason: 'unknown-state' }
   if (state.enabled !== true) return { allowed: false, reason: 'card-off' }
-  // "Has a channel" means a channel that can *do* something, not one that has been asked for.
-  // The difference only shows while the banner channel is switched off in code, and it is why
-  // the switch arrives as a fact rather than as a module constant: a card whose bell is dark and
-  // whose banner preference is on would otherwise be admitted and then produce neither a sound
-  // nor a banner — a state the plugin reports as on and does nothing about, which is the worst
-  // available way to be switched off. Reading the constant here would also make the two cases
-  // indistinguishable in the tests.
+  // There is one channel. A card with its bell switched off — or with the bell muted globally —
+  // has nothing it could do, so it is switched off rather than admitted and then silent.
   const wantsSound = state.sound === true && settings.soundScope !== 'off'
-  const wantsNotification =
-    facts?.notificationsEnabled === true && state.notification === true && settings.desktopNotifications !== false
-  if (!wantsSound && !wantsNotification) return { allowed: false, reason: 'no-channel' }
+  if (!wantsSound) return { allowed: false, reason: 'no-channel' }
   if (facts?.skipFocusedSession === true && settings.skipFocusedSession === true && facts.isMain === true) {
     return { allowed: false, reason: 'focused-session' }
   }

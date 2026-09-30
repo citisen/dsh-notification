@@ -28,13 +28,11 @@
  *
  * ## How it is put together
  *
- * Everything with a decision in it lives in a module that does not touch the DOM:
- * `states.js` projects the interface's observables into per-session state and
- * diffs two observations into events; `engine.js` turns one event plus the
- * resolved settings into a plan; `sound.js` parses a melody and schedules it;
- * `system.js` owns the notification permission state; `settings.js` and
- * `templates.js` are the configuration and its text. This file is deliberately the
- * only impure one, and it is thin: read two snapshots, ask for a plan, perform it.
+ * Everything with a decision in it lives in a module that does not touch the DOM: `states.js` projects
+ * the interface's observables into per-session state and diffs two observations into events;
+ * `engine.js` turns one event plus the resolved settings into a plan; `sound.js` parses a melody and
+ * schedules it; `settings.js` is the configuration. This file is deliberately the only impure one, and
+ * it is thin: read two snapshots, ask for a plan, play what it says.
  *
  * This file is **not** loaded as an ES module. `scripts/build-client.mjs` wraps it
  * in the DSH client-bundle envelope and writes `lib/client.js`, which is what the
@@ -51,9 +49,8 @@ import { defineStore } from '@deepseek-ai/dsh-client-store'
 import { NotificationRow, ROW_CSS, en, zh } from './row.js'
 import { createFailureLog, createSpeechLog, diffStatus, observe, tally } from './states.js'
 import { createPlayer } from './sound.js'
-import { createNotifier } from './system.js'
 import { describePlan, gapElapsed, planEvent } from './engine.js'
-import { NOTIFICATIONS_ENABLED, resolveSettings, stateGain } from './settings.js'
+import { resolveSettings, stateGain } from './settings.js'
 import { STATE_KINDS } from './states.js'
 
 /**
@@ -225,11 +222,11 @@ function readSources(ctx) {
  * Wire the interface's state to the two output channels.
  *
  * @param ctx - the client context.
- * @param options - `{ store, player, notifier, view }`.
+ * @param options - `{ store, player, view }`.
  * @returns `{ counts, refresh }` — the live counts and a function that re-reads.
  */
 function installEngine(ctx, options) {
-  const { store, player, notifier, view } = options
+  const { store, player, view } = options
   const failures = createFailureLog()
   const speech = createSpeechLog()
   const reportedSources = { value: false }
@@ -260,25 +257,20 @@ function installEngine(ctx, options) {
     // of "how many sessions are in each state" is a second answer.
     const counts = tally(next)
 
-    // Nothing to do is the common case by a wide margin, and it is worth leaving
-    // early rather than walking the whole permission and visibility path for it.
+    // Nothing to do is the common case by a wide margin, and it is worth leaving early rather than
+    // walking the whole visibility path for it.
     if (events.length > 0) {
       const visibility = readVisibility(view)
-      const permission = notifier.permission()
-      const stateLabel = events.map((entry) => entry.kind)
       const plans = events.map((entry) =>
         planEvent({
           event: entry,
           settings,
           counts,
           stateLabel: stateLabelText(ctx, entry.kind),
-          permission,
           visibility,
           now: Date.now(),
           lastSpoke: speech,
-          // The one place the hard-coded channel switch is read. Everything downstream takes it
-          // as a fact, so the banner path stays reachable in both states from a test.
-          notificationsEnabled: NOTIFICATIONS_ENABLED,
+          // the banner path stays reachable in both states from a test.
         }),
       )
 
@@ -294,18 +286,11 @@ function installEngine(ctx, options) {
             lastSoundAt = now
             speech.note(events[audible].sessionId, now)
           } else if (!reportedLocked) {
-            // The autoplay policy: a chime requested before any user gesture is
-            // dropped rather than queued, and the row says so once.
+            // The autoplay policy: a chime requested before any user gesture is dropped rather than
+            // queued, and the row says so once.
             reportedLocked = true
           }
         }
-      }
-
-      // ── the banners ─────────────────────────────────────────────────────────
-      for (const plan of plans) {
-        if (plan.banner === undefined) continue
-        notifier.show(plan.banner)
-        speech.note(plan.banner.data.sessionId, Date.now())
       }
     }
 
@@ -400,37 +385,6 @@ function stateLabelText(ctx, kind) {
   }
 }
 
-/**
- * Bring the window forward and try to select the session a banner was about.
- *
- * A notification that cannot take you to the thing it is about is a nag, so the
- * click does the two things it can: raise the window, which every window can do,
- * and click the session's own row, which is a best-effort selector against markup
- * this plugin does not own. The second half is deliberately guarded — a release
- * that renames the attribute costs the *navigation*, not the notification.
- *
- * @param ctx - the client context.
- * @param data - the banner's `data`.
- * @param view - the window.
- * @returns {void}
- */
-function focusSession(ctx, data, view) {
-  try {
-    view?.focus?.()
-  } catch {
-    /* a window that refuses focus is the platform's decision */
-  }
-  const sessionId = data?.sessionId
-  if (typeof sessionId !== 'string' || sessionId === '') return
-  try {
-    // Two spellings, because the session id has appeared both raw and prefixed.
-    const selector = `[data-session-id="${sessionId}"], [data-session-id="session-${sessionId}"]`
-    const element = view?.document?.querySelector?.(selector)
-    element?.click?.()
-  } catch {
-    /* the interface is not ours; a click that does not land is not an error */
-  }
-}
 
 /**
  * The services this plugin waits for.
@@ -469,12 +423,6 @@ export function apply(ctx) {
   const player = createPlayer({
     AudioContextClass: view?.AudioContext ?? view?.webkitAudioContext,
   })
-  const notifier = createNotifier({
-    view,
-    onClick: (data) => {
-      focusSession(ctx, data, view)
-    },
-  })
   const store = createRowStore()
 
   /** The configuration form for this plugin's own Loader entry. */
@@ -504,7 +452,7 @@ export function apply(ctx) {
   }
 
   ctx.effect(() => watchSettings(), `${PLUGIN_ID}: settings subscription`)
-  const engine = installEngine(ctx, { store, player, notifier, view })
+  const engine = installEngine(ctx, { store, player, view })
 
   // Audio cannot start before the user's first gesture, and the browser will not
   // say when that was. Resuming on the first one anywhere in the interface is what
@@ -531,9 +479,9 @@ export function apply(ctx) {
   /**
    * Play one state's sound, and say what happened.
    *
-   * The audition is also the gesture that unlocks audio for the session, which is
-   * why there is no separate unlock control: pressing "play" is the most direct way
-   * to make a sound and the most natural way to grant permission for one.
+   * The audition is also the gesture that unlocks audio for the session, which is why there is no
+   * separate unlock control: pressing Play is both the most direct way to make a sound and the most
+   * natural way to grant the browser the gesture it wants.
    *
    * @param kind - the state.
    * @returns a line for the card to print, or undefined.
@@ -547,32 +495,13 @@ export function apply(ctx) {
   }
 
   /**
-   * Raise a real banner for one state, without waiting for a session to be in it.
+   * Report what one state would do right now, without waiting for a session to be in it.
    *
-   * This is the only control that can answer whether notifications work, and it is
-   * also the gesture that asks for permission — a prompt with no context is worse
-   * than one behind a button that says what it is for.
-   *
-   * @param kind - the state.
-   * @returns a promise for the line to print.
-   */
-  /**
-   * Raise a real banner for one state, and report what actually happened.
-   *
-   * This is the only control that can answer whether notifications work. What it reports
-   * is the point: "nothing appeared" has several causes that look identical from the
-   * outside and need different actions from the user, so the line under the card names
-   * the cause rather than the symptom.
-   *
-   * **It does not ask for permission**, and that is a correction this plugin needed.
-   * Measured in the desktop shell: `Notification.requestPermission()` resolves
-   * immediately to `denied` with no prompt at all, because the shell installs no
-   * permission request handler for Electron to prompt with — and the call *changes* a
-   * `default` into a `denied`. So asking was a button that could only make things worse,
-   * and it did: pressing the test button once turned a `default` into a `denied` before
-   * the user ever saw a banner. The permission is now reported, never requested, and a
-   * banner is attempted regardless of it — because the constructor works even when the
-   * permission reads `denied`, which is the whole reason gating on it was wrong.
+   * The card's own switch is treated as on for this one test, so pressing the button on a state that
+   * happens to be switched off still answers a useful question instead of reporting the switch the
+   * user is looking at. The answer is a sentence — which voice, at what level, or why nothing would
+   * happen — because "did that work?" is the question the button exists for and a console line is not
+   * an answer a user can act on.
    *
    * @param kind - the state.
    * @returns a promise for the line to print.
@@ -580,11 +509,10 @@ export function apply(ctx) {
   const test = async (kind) => {
     const t = ctx.locale.bind(LOCALE_NAMESPACE)
     const settings = store.getSnapshot().settings
-    const permission = notifier.permission()
 
-    // The card's own switches are treated as on for this one test, so pressing the button on a
-    // state that happens to be switched off still answers a useful question instead of
-    // reporting the switch the user is looking at.
+    // The card's own switches are treated as on for this one test, so pressing the button on a state
+    // that happens to be switched off still answers a useful question instead of reporting the switch
+    // the user is looking at.
     const plan = planEvent({
       event: {
         kind,
@@ -596,32 +524,17 @@ export function apply(ctx) {
       settings: {
         ...settings,
         enabled: true,
-        states: { ...settings.states, [kind]: { ...settings.states[kind], enabled: true, notification: true } },
+        states: { ...settings.states, [kind]: { ...settings.states[kind], enabled: true } },
       },
       counts: store.getSnapshot().counts,
       stateLabel: t(`notification.state.${kind}`),
-      permission,
       visibility: readVisibility(view),
       now: Date.now(),
-      notificationsEnabled: NOTIFICATIONS_ENABLED,
     })
 
-    let line
-    if (plan.banner !== undefined) {
-      const outcome = notifier.show(plan.banner)
-      line =
-        outcome.shown === true
-          ? `${t('notification.testResult.shown')} · “${plan.banner.title}”`
-          : t('notification.testResult.threw')
-    } else if (plan.sound !== undefined) {
-      // The banner channel is off, so this reports the sound — which is now the whole of what
-      // the plugin does, and therefore exactly what a test button should describe.
-      line = describePlan(plan, t)
-    } else {
-      line = `${t('notification.testResult.skipped')} · ${describePlan(plan, t)}`
-    }
-    // Kept in the store so the row re-renders with it, and so it survives the panel being
-    // closed and reopened.
+    const line = describePlan(plan, t)
+    // Kept in the store so the row re-renders with it, and so it survives the panel being closed and
+    // reopened.
     store.setResult(kind, line)
     return line
   }
@@ -693,8 +606,6 @@ export function apply(ctx) {
               void Promise.resolve(form.unset('version'))
             })
           },
-          onAskPermission: () => notifier.request(),
-          permission: notifier.permission(),
           audio: player.state(),
         }),
       },
@@ -704,7 +615,6 @@ export function apply(ctx) {
 
   ctx.effect(() => {
     return () => {
-      notifier.closeAll()
       player.dispose()
     }
   }, `${PLUGIN_ID}: teardown`)

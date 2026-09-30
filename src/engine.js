@@ -3,10 +3,9 @@
  *
  * Everything upstream of this file produces facts and everything downstream
  * performs effects, and this is the one place where a fact becomes a decision. It
- * is a pure function of its inputs — the event, the resolved settings, the
- * permission state, the clock, the last time each session spoke — which is what
- * lets the entire behaviour of the plugin be asserted as a table instead of
- * observed in a room.
+ * is a pure function of its inputs — the event, the resolved settings, the clock,
+ * the last time each session spoke — which is what lets the entire behaviour of
+ * the plugin be asserted as a table instead of observed in a room.
  *
  * ## Why the decision is separated from the effect
  *
@@ -22,31 +21,18 @@
  */
 
 import { admit, soundAllowed, stateGain, stateVoice } from './settings.js'
-import { clockTime, fitLine, renderTemplate } from './templates.js'
-
-/**
- * How high a banner's body may be before it is trimmed.
- *
- * Chosen to be shorter than what any tested platform truncates at rather than to
- * match one, because the plugin cannot see the limit and a body cut mid-word reads
- * as a bug in the plugin. {@link fitLine} breaks at a word and adds an ellipsis, so
- * the shortening is visible in the text rather than implied by the platform.
- */
-export const BANNER_BODY_LIMIT = 120
 
 /**
  * What one change should do.
  *
  * @param input - the facts:
- *   - `event` — one event from the state machine: `{ kind, sessionId, title, summary, isMain, previous }`.
+ *   - `event` — one event from the state machine.
  *   - `settings` — resolved settings.
- *   - `counts` — how many sessions are in each state, for the `{count}` placeholder.
- *   - `stateLabel` — the state's name in the interface language.
- *   - `permission` — `{ supported, permission }` for the banner channel.
- *   - `visibility` — `{ visible, focused }` or nothing when the document cannot say.
+ *   - `counts` — how many sessions are in each state.
+ *   - `visibility` — `{ visible, focused }`, or nothing when the document cannot say.
  *   - `now` — epoch milliseconds.
- *   - `lastSpoke` — `Map<sessionId, epochMs>`, the caller's own memory.
- * @returns `{ admit, reason, sound, banner }` — the plan.
+ *   - `lastSpoke` — the speech log, the caller's own memory of when each session last made a noise.
+ * @returns `{ admit, reason, sound }` — the plan.
  */
 export function planEvent(input) {
   const { event, settings, now } = input
@@ -67,13 +53,10 @@ export function planEvent(input) {
       input.visibility !== undefined && input.visibility.focused === true && input.visibility.visible === true,
     now,
     lastSpokenAt,
-    // Whether the banner channel is live at all. Passed through so the two states are both
-    // reachable from a test rather than only the one that ships.
-    notificationsEnabled: input.notificationsEnabled === true,
   })
 
   if (verdict.allowed !== true) {
-    return { admit: false, reason: verdict.reason, sound: undefined, banner: undefined }
+    return { admit: false, reason: verdict.reason, sound: undefined }
   }
 
   const state = settings.states[event.kind]
@@ -93,84 +76,13 @@ export function planEvent(input) {
       ? { melody: state.melody, voice, gain, kind: event.kind }
       : undefined
 
-  // The banner.
-  //
-  // The first gate is whether the channel is enabled *at all*, passed in rather than read from
-  // a module constant — and that is a design decision, not plumbing. Hard-coding the check here
-  // would make the whole banner path untestable in the one state it currently ships in, and the
-  // point of keeping the channel alive while it is switched off is that turning it back on is a
-  // one-line change rather than a rewrite. As a parameter, both states are exercised by the
-  // suite on every run.
-  //
-  // The state's own preference and the global switch are still read, so a card keeps recording
-  // what the user wants — which is what makes re-enabling restore their intent rather than a
-  // blank configuration.
-  //
-  // Deliberately **not** gated on the permission, which is a correction this plugin needed: in
-  // the desktop shell `Notification.permission` reads `denied` while `new Notification(...)`
-  // still constructs, so gating on it withheld banners the platform would have shown, silently.
-  // The only environment gate left is whether there is an API to try with at all.
-  const wantsBanner =
-    input.notificationsEnabled === true &&
-    state.notification === true &&
-    settings.desktopNotifications !== false
-  const banner =
-    wantsBanner && input.permission?.supported !== false
-      ? buildBanner(event, state, {
-          counts: input.counts ?? {},
-          stateLabel: input.stateLabel ?? event.kind,
-          now: now ?? 0,
-        })
-      : undefined
-
   return {
     admit: true,
     reason: 'allowed',
-    // A plan that says "allowed" with neither channel means the state's own
-    // switches were turned off between `admit` and here — which cannot happen in
-    // one pass, but is the shape a caller extending this should keep honest.
     sound,
-    banner,
-    suppressed: wantsBanner && banner === undefined ? 'unsupported' : undefined,
   }
 }
 
-/**
- * Render a state's banner from its templates.
- *
- * The two strings are the user's, so this is where a template becomes text: the
- * session's own title and the pending question's own words fill the holes, and the
- * result is fitted to a length a desktop banner can show. A title that renders
- * empty falls back to the plugin's own name, because a banner with no heading is
- * not shown at all and a silently missing notification is the worst outcome
- * available.
- *
- * @param event - the event.
- * @param state - that state's settings.
- * @param context - `{ counts, stateLabel, now }`.
- * @returns `{ title, body, tag, data, unknown }`.
- */
-export function buildBanner(event, state, context) {
-  const values = {
-    title: event.title,
-    summary: event.summary ?? '',
-    state: context.stateLabel,
-    count: context.counts?.[event.kind] ?? 0,
-    time: clockTime(context.now ?? 0),
-  }
-  const title = renderTemplate(state.title, values)
-  const body = renderTemplate(state.body, values)
-  return {
-    title: fitLine(title.text, 64) || 'Session notification',
-    body: fitLine(body.text, BANNER_BODY_LIMIT),
-    // The tag is per state and per session, which is what makes two banners about
-    // the same session replace each other instead of stacking up — the behaviour a
-    // user wants from a status channel, and the reason the OS-level `tag` exists.
-    tag: `${event.kind}:${event.sessionId}`,
-    data: { sessionId: event.sessionId, kind: event.kind, url: context.url },
-    unknown: [...new Set([...title.unknown, ...body.unknown])],
-  }
-}
 
 /**
  * The engine's own bookkeeping: when each session last spoke.
@@ -268,32 +180,12 @@ export function firstAudible(plans) {
   return -1
 }
 
-/**
- * Which of a burst's events should raise a banner.
- *
- * Every admitted banner, rather than one per burst: a banner is not an
- * interruption that competes with another banner the way two chimes compete, and a
- * user who has three sessions waiting is better served by three banners than by
- * one that names the first. The platform stacks or replaces them by their tags,
- * which is a decision it is better at than this plugin is.
- *
- * @param plans - the plans from {@link planEvent}.
- * @returns the indices of the plans that should raise a banner.
- */
-export function allBannered(plans) {
-  const chosen = []
-  for (let index = 0; index < plans.length; index += 1) {
-    if (plans[index]?.banner !== undefined) chosen.push(index)
-  }
-  return chosen
-}
 
 /**
  * A one-line description of a plan, for the settings card and for the log.
  *
- * The row shows the same decision the engine makes, so a user who presses a test
- * button sees the outcome rather than a promise: "sound bell at 0.56" and "banner
- * refused (default)" are answers, and "sent" is not.
+ * The row shows the same decision the engine makes, so a user who presses Test sees the outcome
+ * rather than a promise: "sound bell at 56%" is an answer, and "sent" is not.
  *
  * @param plan - a plan from {@link planEvent}.
  * @param t - the translator, for the reasons that need words.
@@ -305,7 +197,6 @@ export function describePlan(plan, t) {
   if (plan.sound !== undefined) {
     parts.push(`${t('notification.sound')}: ${plan.sound.voice} @ ${String(Math.round(plan.sound.gain * 100))}%`)
   }
-  if (plan.banner !== undefined) parts.push(`${t('notification.notification')}: ${plan.banner.title}`)
   if (parts.length === 0) parts.push(t('notification.testResult.silent'))
   return parts.join(' · ')
 }

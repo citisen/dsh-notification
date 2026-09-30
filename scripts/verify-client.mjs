@@ -181,23 +181,16 @@ const REQUIRED_EXPORTS = [
   'noteFrequency',
   'schedule',
   'createPlayer',
-  'permissionState',
-  'createNotifier',
   'planEvent',
-  'buildBanner',
   'createSpeechLog',
   'gapElapsed',
   'firstAudible',
-  'allBannered',
   'resolveSettings',
   'defaultSection',
   'admit',
   'soundAllowed',
   'stateGain',
   'stateVoice',
-  'renderTemplate',
-  'fitLine',
-  'clockTime',
 ]
 for (const name of REQUIRED_EXPORTS) {
   assert.ok(name in exports_, `the bundle must export ${name}`)
@@ -269,103 +262,41 @@ assert.equal(events[0].title, 'Deploy')
 assert.equal(events[0].summary, 'Which file?')
 
 // ── the engine, on the shipped bundle ──────────────────────────────────────
-
+//
+// The shipped configuration drives these, read from the bundle rather than restated: a restatement
+// would be a second opinion about the defaults, free to agree with itself and disagree with the row.
 const shipped = exports_.resolveSettings(undefined)
-const granted = { supported: true, permission: 'granted', canAsk: false }
 const hidden = { visible: false, focused: false }
 const watching = { visible: true, focused: true }
 
-// Two facts about the *shipped* configuration that shape every assertion below, read from the
-// bundle rather than restated: the banner channel is switched off in code, and a banner path is
-// therefore only reachable when it is passed as live. Asserting the shipped state first means a
-// future change to the switch fails here rather than quietly rewriting what these tests cover.
-assert.equal(exports_.NOTIFICATIONS_ENABLED, false, 'the banner channel ships switched off')
-const live = { notificationsEnabled: true }
-const dark = { notificationsEnabled: false }
-
-const plan = exports_.planEvent({
-  event: events[0],
-  settings: shipped,
-  counts: { question: 1 },
-  stateLabel: 'Waiting for an answer',
-  permission: granted,
-  visibility: hidden,
-  now: 1000,
-  ...live,
-})
+const plan = exports_.planEvent({ event: events[0], settings: shipped, visibility: hidden, now: 1000 })
 assert.equal(plan.admit, true)
-assert.equal(plan.banner.title, 'Deploy is asking')
-assert.equal(plan.banner.tag, 'question:a')
-assert.notEqual(plan.sound, undefined)
+assert.equal(plan.reason, 'allowed')
+assert.equal(plan.sound.voice, exports_.STATE_DEFAULTS.question.voice)
+assert.equal(plan.sound.melody, exports_.STATE_DEFAULTS.question.melody)
 
-// With the channel switched off — which is how it ships — the same event produces the same bell
-// and no banner at all. This is the assertion that the hard-coded switch actually switches
-// something off, rather than being a comment.
-const shippedPlan = exports_.planEvent({
-  event: events[0],
-  settings: shipped,
-  counts: { question: 1 },
-  stateLabel: 'Waiting for an answer',
-  permission: granted,
-  visibility: hidden,
-  now: 1000,
-  ...dark,
-})
-assert.equal(shippedPlan.admit, true)
-assert.equal(shippedPlan.banner, undefined, 'the shipped configuration must plan no banner')
-assert.notEqual(shippedPlan.sound, undefined, 'and must still ring')
+// The plan carries a sound and nothing else. The notification channel is not merely switched off in
+// the shipped bundle — the code that would plan a banner is not in the bundle at all, which is a
+// stronger statement and the one worth asserting: `banner` is absent from the plan's own shape.
+assert.deepEqual(Object.keys(plan).sort(), ['admit', 'reason', 'sound'])
 
-// The user is reading the interface: no chime, but the banner still earns its place
-// because the session it names is not the one on screen.
-const whileWatching = exports_.planEvent({
-  event: events[0],
-  settings: shipped,
-  permission: granted,
-  visibility: watching,
-  now: 1000,
-  ...live,
-})
-assert.equal(whileWatching.sound, undefined)
-assert.notEqual(whileWatching.banner, undefined)
+// The user is reading the interface, so the bell stays quiet.
+assert.equal(
+  exports_.planEvent({ event: events[0], settings: shipped, visibility: watching, now: 1000 }).sound,
+  undefined,
+)
 
-// The session the user is looking at is not news.
+// And the session the user is looking at is not news at all.
 assert.equal(
   exports_.planEvent({
     event: { ...events[0], isMain: true },
     settings: shipped,
-    permission: granted,
     visibility: watching,
     now: 1000,
-    ...live,
   }).admit,
   false,
 )
 
-// A refused permission does **not** suppress the banner, and this assertion is the point of
-// a bug fix rather than a detail: the desktop shell reports `denied` while the constructor
-// still works, so gating on the permission withheld banners the platform would have shown.
-// The only thing that suppresses a banner is an environment with no notification API.
-const refused = exports_.planEvent({
-  event: events[0],
-  settings: shipped,
-  permission: { supported: true, permission: 'denied', canAsk: false },
-  visibility: hidden,
-  now: 1000,
-  ...live,
-})
-assert.notEqual(refused.banner, undefined, 'a denied permission must not suppress the banner')
-assert.equal(refused.suppressed, undefined)
-
-const noApi = exports_.planEvent({
-  event: events[0],
-  settings: shipped,
-  permission: { supported: false, permission: 'unsupported' },
-  visibility: hidden,
-  now: 1000,
-  ...live,
-})
-assert.equal(noApi.banner, undefined, 'no notification API means nothing to try with')
-assert.equal(noApi.suppressed, 'unsupported')
 
 // ── the sound, on the shipped bundle ───────────────────────────────────────
 
@@ -384,29 +315,6 @@ for (const kind of exports_.STATE_KINDS) {
   assert.equal(read.silent, false, `the shipped ${kind} melody must make a sound`)
 }
 
-// ── the notifier, on the shipped bundle ────────────────────────────────────
-
-const shown = []
-function FakeNotification(title, settings) {
-  this.title = title
-  this.settings = settings
-  this.listeners = new Map()
-  this.addEventListener = (name, listener) => {
-    this.listeners.set(name, [...(this.listeners.get(name) ?? []), listener])
-  }
-  this.close = () => undefined
-  shown.push(this)
-}
-FakeNotification.permission = 'granted'
-FakeNotification.requestPermission = () => Promise.resolve('granted')
-
-const notifier = exports_.createNotifier({ view: { Notification: FakeNotification }, onClick: () => undefined })
-assert.deepEqual(notifier.show({ title: 'T', body: 'B', tag: 'x' }), { shown: true, reason: 'shown' })
-assert.equal(shown.length, 1)
-assert.equal(shown[0].settings.silent, true, 'the banner must not double the chime the plugin makes')
-
-const noPermission = exports_.createNotifier({ view: {} })
-assert.equal(noPermission.show({ title: 'T' }).shown, false)
 
 // ── apply(), against stub services ──────────────────────────────────────────
 
@@ -563,7 +471,6 @@ assert.ok(
 // And it must be the *same* store the engine reads, or the row would render one
 // configuration while the engine runs another.
 assert.equal(typeof storeSource.actions?.sync, 'function', 'the store seat must be the instance')
-assert.ok(injected.permission !== undefined, 'the row needs the banner permission state')
 
 /** The translator the slot registry would hand the component. */
 const t = (key) => recorded.locale.dictionaries.zh[key] ?? key
@@ -712,20 +619,15 @@ assert.ok(
 )
 
 if (!exports_.NOTIFICATIONS_ENABLED) {
-  // A switched-off channel must not be named anywhere — and not only on a tab. The banner switch also
-  // lives on every state card, so hiding just the tab left six cards offering "系统通知" for a channel
-  // that is switched off in code, which is what a user found after being told it was disabled.
+  // The notification channel is switched off in code, so its controls must not be rendered anywhere.
+  // This was got wrong twice: first only the tab was hidden while the per-card switch stayed on every
+  // card, and then the switch was removed from the card but its two template fields stayed. Both
+  // versions looked right in a diff and wrong on screen.
   //
-  // The card is rendered **both ways** and the two results compared, because an assertion that a
-  // control is absent passes just as well when the control was never reachable at all — the second
-  // render is what proves the probe can find the thing it claims is missing.
-  //
-  // The probe counts checkboxes. That took a few wrong attempts worth recording, because each would
-  // have been a test that passed for the wrong reason: the `labelKey` is a prop of the `Check`
-  // *component*, so searching for it in the output finds its `<label>` and `<input>` and loses the
-  // key; and searching the serialized tree for the label *string* finds nothing ever, since a label
-  // is never a text node. An input element is what the user actually clicks, so that is what is
-  // counted.
+  // The probe counts **checkbox inputs**, because that is what a user clicks. Two earlier formulations
+  // passed for the wrong reasons: a `labelKey` is a prop of the `Check` *component*, so the rendered
+  // tree has the `<label>` and `<input>` it produced and not the key; and searching for the label
+  // *string* finds nothing ever, since a label is never a text node.
   const countCheckboxes = (node, total = 0) => {
     if (node === null || typeof node !== 'object') return total
     if (!Array.isArray(node) && node.type === 'input' && node.props?.type === 'checkbox') total += 1
@@ -734,24 +636,38 @@ if (!exports_.NOTIFICATIONS_ENABLED) {
     }
     return total
   }
-  const renderCard = (banner) =>
-    countCheckboxes(
-      exports_.StateCard({
-        t,
-        kind: 'question',
-        state: exports_.STATE_DEFAULTS.question,
-        count: 0,
-        defaults: exports_.STATE_DEFAULTS.question,
-        banner,
-        onChange: () => undefined,
-        onAudition: () => undefined,
-        onTest: () => undefined,
-      }),
-    )
-  // With the channel live: "alert for this state", "play a sound", "system notification".
-  assert.equal(renderCard(true), 3, 'a live channel contributes the banner switch')
-  // With it off: the same card, one switch fewer, and nothing else lost.
-  assert.equal(renderCard(false), 2, 'the banner switch must not be rendered while the channel is off')
+  const card = exports_.StateCard({
+    t,
+    kind: 'question',
+    // The shipped defaults, which *do* carry the dormant banner preference — so a card that renders
+    // it would render it here. That is what makes this an assertion about the interface rather than
+    // about the state object.
+    state: exports_.STATE_DEFAULTS.question,
+    count: 0,
+    defaults: exports_.STATE_DEFAULTS.question,
+    onChange: () => undefined,
+    onAudition: () => undefined,
+    onTest: () => undefined,
+  })
+  // "Alert for this state" and "Play a sound": the bell's two switches, and nothing else.
+  const renderedCard = renderTree(card)[0]
+  assert.equal(
+    countCheckboxes(renderedCard),
+    2,
+    'the card must render the bell switches and no banner switch',
+  )
+  // And the templates, which are the other half of the same channel. The card is rendered before this
+  // is counted: a `TextField` is a component, so its `<input>` only exists in the rendered tree.
+  const fields = collect(renderedCard, [])
+  assert.ok(
+    !fields.some((node) => String(node.props?.className ?? '').includes('dsh-notification-tokens')),
+    'the placeholder legend belongs to the dormant channel',
+  )
+  assert.equal(
+    fields.filter((node) => node.type === 'input' && node.props?.type === 'text').length,
+    1,
+    'the card renders one text field — the melody — and no banner template fields',
+  )
 }
 
 
@@ -776,14 +692,12 @@ assert.ok(resetOps.every((operation) => operation.path[1] === 'done'))
 injected.onChange(undefined, 'masterVolume', 0.25)
 assert.deepEqual(recorded.writes.at(-1).operations[0].path, ['masterVolume'])
 
-// The audition path must face an environment with no Web Audio without throwing,
-// and the test path must report the refusal rather than claiming a banner was shown.
+// The audition path must face an environment with no Web Audio without throwing, and the test path
+// must report what the state would do as a sentence the user can act on.
 assert.doesNotThrow(() => injected.onAudition('question'))
 const tested = await injected.onTest('question')
 assert.equal(typeof tested, 'string', 'a test must report its outcome as text')
-assert.ok(!/sent|已发出/u.test(tested), `a refused banner must not be reported as sent (got "${tested}")`)
-
-await injected.onAskPermission()
+assert.ok(tested.length > 0, 'a test must say something')
 
 globalThis.window = previousWindow
 delete globalThis.document
