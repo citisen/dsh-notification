@@ -319,12 +319,26 @@ async function drive(url) {
       const named = buttons.map((node) => (node.textContent ?? '').trim())
       const play = buttons.find((node) => /试听|Play/u.test(node.textContent ?? ''))
       if (play === undefined) return { pressed: false, named, reason: 'no play button' }
+      // The levels, measured rather than described: how wide the card is, and whether the controls in its
+      // grid actually share one row. A grid quietly falls back to one column when two tracks do not quite
+      // fit, which is invisible in the markup and obvious on screen — and it is what happened here, by
+      // three pixels, so it is worth a number rather than a look.
+      const grid = card.querySelector('[class*="dsh-notification-grid"]')
+      const tops = grid === null ? [] : [...grid.children].map((node) => Math.round(node.getBoundingClientRect().top))
+      const measured = {
+        cardWidth: Math.round(card.getBoundingClientRect().width),
+        gridWidth: grid === null ? null : Math.round(grid.getBoundingClientRect().width),
+        columns: grid === null ? null : getComputedStyle(grid).gridTemplateColumns,
+        children: tops.length,
+        onOneRow: tops.length > 1 && tops.every((top) => top === tops[0]),
+      }
       play.click()
       await new Promise((resolve) => setTimeout(resolve, 2500))
       const result = card.querySelector('[class*="dsh-notification-result"]')
       return {
         pressed: true,
         named,
+        measured,
         result: result === null ? null : (result.textContent ?? '').trim(),
       }
     })()`,

@@ -92,7 +92,12 @@ export const ROW_CSS = [
   `.${cn('problem')}{color:var(--dsw-alias-state-warn-primary);font-family:var(--ds-font-family-code,ui-monospace,monospace);font-size:11px;line-height:16px}`,
   `.${cn('note')}{color:var(--dsw-alias-label-tertiary);font-size:11px;line-height:16px}`,
   `.${cn('warning')}{color:var(--dsw-alias-state-warn-primary);font-size:11px;line-height:16px}`,
-  `.${cn('grid')}{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:6px 12px}`,
+  // The levels share one row. The floor is 88px rather than a round 100 for a measured reason: the card's
+  // content box is about 265px wide, a laid-out {@link NumberField} needs around 128px, and two of them
+  // plus this gap came to 268px — three pixels too many, so the grid quietly fell back to one field per
+  // row. The gap is 8px and the floor is below half the content box, which is what makes two tracks fit
+  // with room to spare rather than by three pixels.
+  `.${cn('grid')}{display:grid;grid-template-columns:repeat(auto-fit,minmax(88px,1fr));gap:6px 8px}`,
   // The vertical switcher and its panel, side by side. The switcher is a column of names rather
   // than a row of tabs, because a state name is a phrase rather than a word — six of them in a row
   // wrap onto a second line, and a wrapped tab strip reads as a list of controls rather than as a
