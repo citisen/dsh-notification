@@ -658,29 +658,25 @@ const countCheckboxes = (node, total = 0) => {
 const card = exports_.StateCard({
   t,
   kind: 'question',
-  // The shipped defaults, which *do* carry the dormant banner preference — so a card that renders
-  // it would render it here. That is what makes this an assertion about the interface rather than
-  // about the state object.
   state: exports_.STATE_DEFAULTS.question,
   count: 0,
   defaults: exports_.STATE_DEFAULTS.question,
   onChange: () => undefined,
-  onAudition: () => undefined,
-  onTest: () => undefined,
+  onPlay: () => undefined,
 })
-// "Alert for this state" and "Play a sound": the bell's two switches, and nothing else.
+// **One** switch. The card has had three at various points — a plugin-wide one, "Alert for this state",
+// and "Play a sound" — and each pair of them was the same question asked twice: the plugin-wide one
+// duplicated dsh's own plugin manager, and "Play a sound" duplicated the card's switch once the
+// notification channel (the second thing a card could do) was removed. A count is the only assertion
+// that catches a duplicate appearing again, because two switches that mean the same thing each look
+// correct on their own.
 const renderedCard = renderTree(card)[0]
-assert.equal(
-  countCheckboxes(renderedCard),
-  2,
-  'the card must render the bell switches and no banner switch',
-)
-// And the templates, which are the other half of the same channel. The card is rendered before this
-// is counted: a `TextField` is a component, so its `<input>` only exists in the rendered tree.
+assert.equal(countCheckboxes(renderedCard), 1, 'the card must render exactly one switch')
+// And no template fields, nor the placeholder legend that went with them.
 const fields = collect(renderedCard, [])
 assert.ok(
   !fields.some((node) => String(node.props?.className ?? '').includes('dsh-notification-tokens')),
-  'the placeholder legend belongs to the dormant channel',
+  'the placeholder legend belongs to the removed channel',
 )
 assert.equal(
   fields.filter((node) => node.type === 'input' && node.props?.type === 'text').length,

@@ -291,19 +291,37 @@ async function drive(url) {
   // resets. Two buttons the user could not tell apart is what this replaced, so the *count* is part of
   // the assertion rather than only the labels.
   //
-  // Pressing it is also the real check: it must print a sentence, and it must not throw — an audio
-  // path that fails in the page would leave the card silent with nothing said about it.
+  // The switcher is put back on its **first** state first, and that matters: the previous step clicks
+  // every state in turn to prove each one selects a card, which leaves the last one — `running` — on
+  // screen, and `running` ships switched off. A card that is off correctly offers no Play button, so
+  // without this the probe reports "no play button" for a plugin that is behaving exactly as designed.
+  // The switch is selected by its own label rather than by position, so a reordered roster fails loudly
+  // here instead of silently testing a different card.
+  //
+  // Pressing it is also the real check: it must print a sentence, and it must not throw — an audio path
+  // that fails in the page would leave the card silent with nothing said about it.
   const playedResult = await socket.send('Runtime.evaluate', {
     expression: `(async () => {
       const row = document.querySelector('[class*="dsh-notification-row"]')
       if (row === null) return { error: 'no row' }
-      const buttons = [...row.querySelectorAll('[class*="dsh-notification-actions"] button')]
+      const isClass = (node, name) => new RegExp('(?:^|\\\\s)' + name + '(?:\\\\s|$)').test(String(node.className))
+      const pickers = [...row.querySelectorAll('[role="tab"]')].filter((node) => isClass(node, 'dsh-notification-picker'))
+      const first = pickers.find((node) => /Waiting for an answer|等待回答/u.test(node.textContent ?? ''))
+      if (first === undefined) return { pressed: false, reason: 'the roster has no "Waiting for an answer" state' }
+      first.click()
+      await new Promise((resolve) => setTimeout(resolve, 600))
+      const card = row.querySelector('[class*="dsh-notification-card"]')
+      if (card === null) return { pressed: false, reason: 'the first state rendered no card' }
+      if (card.getAttribute('data-off') === 'true') {
+        return { pressed: false, reason: 'the first state ships switched off, so it has no Play button' }
+      }
+      const buttons = [...card.querySelectorAll('[class*="dsh-notification-actions"] button')]
       const named = buttons.map((node) => (node.textContent ?? '').trim())
       const play = buttons.find((node) => /试听|Play/u.test(node.textContent ?? ''))
       if (play === undefined) return { pressed: false, named, reason: 'no play button' }
       play.click()
       await new Promise((resolve) => setTimeout(resolve, 2500))
-      const result = row.querySelector('[class*="dsh-notification-result"]')
+      const result = card.querySelector('[class*="dsh-notification-result"]')
       return {
         pressed: true,
         named,

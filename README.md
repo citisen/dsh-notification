@@ -26,8 +26,9 @@ Every sound is a short phrase from a public-domain classical work, chosen to sui
 is switched off because a turn beginning is not worth interrupting anyone for; turn it on in its card
 if you want it.
 
-Each card has its own switch, volume, timbre and melody, and once a sound is longer than a single
-blip the melody is worth editing — see [the melody](#the-melody).
+Each card has its own switch, volume, timbre and melody. One switch, because a card can do one thing:
+make a sound. Once that sound is longer than a single blip the melody is worth editing — see
+[the melody](#the-melody).
 
 ## Install
 
@@ -113,8 +114,7 @@ On a card:
 
 | Control | Meaning |
 | --- | --- |
-| Alert for this state | the card's own switch |
-| Play a sound | whether this state makes any noise |
+| Alert for this state | the card's switch — the only one it has |
 | Volume | this card's level, multiplied by the master volume |
 | Timbre | one of the eleven voices below |
 | Melody | the notes to play — see below |
@@ -124,7 +124,7 @@ On a card:
 **Play does two things at once**, which is why there is one button and not two. It plays the state's
 sound through the real audio path — the actual timbre, the actual melody, the actual product of the
 card's volume and the master's — and then prints a line under the card saying what the engine made of
-the request: `Play a sound: marimba @ 100%`, or the reason nothing would happen. Pressing it on a state
+the request: `Audio: marimba @ 100%`, or the reason nothing would happen. Pressing it on a state
 that is switched off still answers the question, by testing the card as though it were on.
 
 It is also the click that unlocks audio the first time.

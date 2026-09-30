@@ -177,10 +177,15 @@ export function firstAudible(plans) {
 
 
 /**
- * A one-line description of a plan, for the settings card and for the log.
+ * A one-line description of a plan, for the card and for the log.
  *
- * The row shows the same decision the engine makes, so a user who presses Test sees the outcome
- * rather than a promise: "sound bell at 56%" is an answer, and "sent" is not.
+ * The row shows the same decision the engine makes, so a user who presses *Play* sees the outcome
+ * rather than a promise: "Sound: marimba @ 56%" is an answer. The reason is printed with it when
+ * nothing would happen, because the reasons need different actions from the user — a card switched off
+ * is fixed on the card, and a global mute is fixed in the global settings.
+ *
+ * The percentage is `stateGain`'s, which is the product of the card's level and the master's. Printing
+ * the product rather than either input is what makes the line answer "how loud will it actually be".
  *
  * @param plan - a plan from {@link planEvent}.
  * @param t - the translator, for the reasons that need words.
@@ -188,10 +193,6 @@ export function firstAudible(plans) {
  */
 export function describePlan(plan, t) {
   if (plan?.admit !== true) return `${t('notification.testResult.skipped')} (${String(plan?.reason ?? 'unknown')})`
-  const parts = []
-  if (plan.sound !== undefined) {
-    parts.push(`${t('notification.sound')}: ${plan.sound.voice} @ ${String(Math.round(plan.sound.gain * 100))}%`)
-  }
-  if (parts.length === 0) parts.push(t('notification.testResult.silent'))
-  return parts.join(' · ')
+  if (plan.sound === undefined) return t('notification.testResult.silent')
+  return `${t('notification.audio')}: ${plan.sound.voice} @ ${String(Math.round(plan.sound.gain * 100))}%`
 }

@@ -101,13 +101,6 @@ test("a card's own switch silences that card alone", () => {
   assert.equal(planFor({ settings }).admit, true)
 })
 
-test('a card with its bell off is switched off, not admitted and then silent', () => {
-  const settings = resolveSettings({ states: { done: { sound: false } } })
-  const plan = planFor({ event: event({ kind: 'done' }), settings })
-  assert.deepEqual({ admit: plan.admit, reason: plan.reason }, { admit: false, reason: 'no-channel' })
-  assert.equal(plan.sound, undefined)
-})
-
 test('the bell is gated on the window', () => {
   // `background` is the shipped scope: a window the user is reading is a window the interface has
   // already spoken for.
@@ -160,7 +153,7 @@ test('a gain of zero is not planned as a sound', () => {
 test('one sound per burst is the first plan that has a sound, not the first plan', () => {
   // The bug this pins: taking the first event and finding it silent would suppress the whole burst,
   // because the silent card is first in the urgency order.
-  const silent = planFor({ settings: resolveSettings({ states: { question: { sound: false } } }) })
+  const silent = planFor({ settings: resolveSettings({ states: { question: { enabled: false } } }) })
   const loud = planFor({ event: event({ kind: 'approval' }) })
   assert.equal(silent.sound, undefined)
   assert.notEqual(loud.sound, undefined)
@@ -202,8 +195,8 @@ test('a plan describes itself in the words the card shows', () => {
 
   assert.match(describePlan(planFor({ settings: resolveSettings({ soundScope: 'off' }) }), says), /global-mute/u)
   const silentCard = planFor({
-    settings: resolveSettings({ states: { done: { sound: false } } }),
+    settings: resolveSettings({ states: { done: { enabled: false } } }),
     event: event({ kind: 'done' }),
   })
-  assert.match(describePlan(silentCard, says), /no-channel/u)
+  assert.match(describePlan(silentCard, says), /card-off/u)
 })

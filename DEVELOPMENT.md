@@ -119,13 +119,27 @@ host-side bridge to the main process, which the shell would have to expose — a
 reach Electron. That is a change to the application, not to this bundle, and until then the honest
 plugin is one that does one thing.
 
-### Turning the whole plugin off is the plugin manager's job
+### Three duplicate switches, and what each was
 
 There is deliberately no plugin-wide switch in the settings row. dsh's own plugin manager enables and
 disables a plugin by editing the profile's `dsh.profile.bundles`; that is the only place a
 plugin-wide on/off belongs, and a second switch meant two places to look when the plugin was silent.
 The one control here that means "silence everything for now" is *when sound plays* set to `never`, which
 sits with the other rules about when the bell may ring.
+
+The same duplication turned up twice more inside the card, and both times it was only visible as a
+*count*:
+
+| Pair | Why it was two, and why it is one |
+| --- | --- |
+| plugin-wide switch / dsh's plugin manager | Both answered "is this plugin on". The manager is the only place that belongs. |
+| *Alert for this state* / *Play a sound* | The second was the notification channel's switch. With one channel it meant exactly what the first did. |
+| *Play* / *Test* | *Play* previewed the sound; *Test* planned it, printed a sentence, and played nothing. |
+
+Each removal is held in place by a count rather than a description, because two controls that mean the
+same thing each look correct on their own: `verify-client` asserts the card renders exactly one switch
+and exactly two buttons, and `live-probe` clicks the play button and rejects any button still named a
+test.
 
 Note what the manager's toggle actually does, since it shapes the advice in the README:
 `loadProfileDirectory` reads the bundles list **once at boot** and nothing watches it, so disabling a

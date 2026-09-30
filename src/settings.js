@@ -95,28 +95,24 @@ export const SOUND_SCOPES = ['off', 'background', 'always']
 export const STATE_DEFAULTS = {
   question: {
     enabled: true,
-    sound: true,
     volume: 1,
     voice: 'bell',
     melody: 'G4:170ms G4:170ms G4:170ms Eb4:680ms',
   },
   approval: {
     enabled: true,
-    sound: true,
     volume: 1,
     voice: 'bell',
     melody: 'A5:350ms G5:95ms F5:95ms E5:95ms D5:95ms C#5:95ms D5:500ms',
   },
   plan: {
     enabled: true,
-    sound: true,
     volume: 1,
     voice: 'marimba',
     melody: 'C5:120ms E5:120ms G5:120ms C6:420ms',
   },
   failed: {
     enabled: true,
-    sound: true,
     volume: 1,
     // A bell for the *Dies irae*: the chant is a bell anyway, and the voice's long inharmonic
     // tail is what makes six descending notes read as one solemn phrase rather than six blips.
@@ -125,19 +121,16 @@ export const STATE_DEFAULTS = {
   },
   done: {
     enabled: true,
-    sound: true,
     volume: 1,
     voice: 'marimba',
     melody: 'E4:230ms E4:230ms F4:230ms G4:230ms G4:230ms F4:230ms E4:230ms D4:460ms',
   },
   running: {
-    enabled: false,
     // The one card that ships switched off, and the reason the card exists at all: a turn
     // *starting* is not something to interrupt anyone for, so the shipped answer is no. A user
     // who wants feedback that work began turns it on, and that is a decision the card can
     // express rather than a policy the engine has to guess.
     enabled: false,
-    sound: false,
     volume: 1,
     // A marimba rather than a bell or a sawtooth: a rising arpeggio wants a percussive attack
     // and a short decay, which is exactly the wooden bar.
@@ -185,7 +178,6 @@ export const SETTINGS_VERSION = 1
  */
 export const STATE_FIELDS = [
   { id: 'enabled', kind: 'boolean', label: 'Alert for this state', hint: 'this card’s own switch' },
-  { id: 'sound', kind: 'boolean', label: 'Play a sound', hint: 'this state’s bell' },
   { id: 'volume', kind: 'number', min: 0, max: 1, label: 'Volume', hint: 'this state’s own level' },
   { id: 'voice', kind: 'choice', values: VOICE_NAMES, label: 'Timbre', hint: 'what it sounds like' },
   { id: 'melody', kind: 'melody', label: 'Melody', hint: 'note names and lengths; off for silence' },
@@ -303,17 +295,16 @@ export function defaultSection() {
  * The order of these checks is the design, and every one of them is a decision that has been wrong in
  * some version of this feature somewhere:
  *
- * 1. **The global mute, then the card's own.** "Silence everything for now" and "silence this one
- *    state" are different intentions, and both live here: the first is `soundScope: 'off'`, the second
- *    is the card's own switch. There was a third, a plugin-wide switch of this plugin's own, and it is
- *    gone — dsh disables a plugin from its own manager, which is the only place a plugin-wide on/off
- *    belongs, and a second answer to that question is a second thing to keep in sync.
- * 2. **The state must have something to do.** A card with its bell off is not an error, it is a card
- *    that has been switched off — and the answer is "nothing", not "play the other channel".
- * 3. **The session the user is looking at.** When the window has focus and the session is the one on
+ * 1. **The card's own switch, then the global mute.** "Alert me about this state" and "silence
+ *    everything for now" are different intentions, and the card's is the more specific answer, so it is
+ *    the one reported when both apply. Each of these used to be two switches: the card had a second
+ *    one, `sound`, and the row had a plugin-wide one. Both were the same question asked twice — `sound`
+ *    was the notification channel's switch and lost its meaning when that channel was removed, and the
+ *    plugin-wide one duplicated dsh's own plugin manager — so each pair collapsed to one.
+ * 2. **The session the user is looking at.** When the window has focus and the session is the one on
  *    screen, the interface *is* the notification. This is the check that keeps the plugin from being
  *    annoying in the one situation where it has nothing to add.
- * 4. **The same session repeating.** A session can flap between states within seconds, and `repeatMs`
+ * 3. **The same session repeating.** A session can flap between states within seconds, and `repeatMs`
  *    is the user's answer to how much of that they want.
  *
  * @param kind - the state the event is about.
@@ -325,12 +316,9 @@ export function admit(kind, settings, facts) {
   const state = settings?.states?.[kind]
   if (state === undefined) return { allowed: false, reason: 'unknown-state' }
   if (state.enabled !== true) return { allowed: false, reason: 'card-off' }
-  // There is one channel, and the global mute closes it for every card: `soundScope` is where that
-  // lives. A plugin-wide switch sat here too, and it was pure duplication — dsh already disables a
-  // plugin from its own manager, which is the *only* place a plugin-wide on/off belongs, and this one
-  // added a second answer to a question that already had one.
+  // The global mute closes the one channel for every card at once. It is `soundScope: 'off'`, which sits
+  // with the other rules about when the bell may ring rather than as a switch of its own.
   if (settings.soundScope === 'off') return { allowed: false, reason: 'global-mute' }
-  if (state.sound !== true) return { allowed: false, reason: 'no-channel' }
   if (facts?.skipFocusedSession === true && settings.skipFocusedSession === true && facts.isMain === true) {
     return { allowed: false, reason: 'focused-session' }
   }

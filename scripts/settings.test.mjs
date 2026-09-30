@@ -263,7 +263,6 @@ test('the shipped cards are configured the way the documentation claims', () => 
   // the default a reader is most likely to check against the table in the README.
   for (const kind of ['question', 'approval', 'plan', 'failed', 'done']) {
     assert.equal(STATE_DEFAULTS[kind].enabled, true, `${kind} should ship enabled`)
-    assert.equal(STATE_DEFAULTS[kind].sound, true, `${kind} should ship with its bell on`)
   }
   assert.equal(STATE_DEFAULTS.running.enabled, false, 'a turn starting is not worth an interruption')
 

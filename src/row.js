@@ -139,7 +139,6 @@ export const zh = {
   'notification.globals': '全局设置',
   'notification.cards': '状态卡片',
   'notification.enabled': '启用这个状态',
-  'notification.sound': '播放提示音',
   'notification.volume': '音量',
   'notification.voice': '音色',
   'notification.melody': '旋律',
@@ -157,10 +156,10 @@ export const zh = {
   'notification.skipFocused': '不要提醒我正在看的那个会话',
   'notification.skipVisible': '窗口在前台时完全安静',
   'notification.testResult.skipped': '这次不会触发',
-  'notification.testResult.silent': '没有通道会响应',
+  'notification.testResult.silent': '这个状态不会出声',
   'notification.audio': '音频',
   'notification.audio.locked': '音频还没解锁 —— 点一次「试听」即可',
-  'notification.audio.unavailable': '这个环境没有 Web Audio，只有系统通知可用',
+  'notification.audio.unavailable': '这个环境没有 Web Audio，所以什么都播不出来',
   'notification.audio.running': '音频就绪',
   'notification.audio.uninitialized': '音频尚未初始化',
   'notification.problems': '这些内容读不出来：',
@@ -181,7 +180,6 @@ export const en = {
   'notification.globals': "Global settings",
   'notification.cards': "States",
   'notification.enabled': "Alert for this state",
-  'notification.sound': "Play a sound",
   'notification.volume': "Volume",
   'notification.voice': "Timbre",
   'notification.melody': "Melody",
@@ -199,7 +197,7 @@ export const en = {
   'notification.skipFocused': "Stay quiet about the session I am looking at",
   'notification.skipVisible': "Stay completely quiet while the window is in front",
   'notification.testResult.skipped': "nothing would happen for this state",
-  'notification.testResult.silent': "neither channel would respond",
+  'notification.testResult.silent': "this state would not sound",
   'notification.audio': "Audio",
   'notification.audio.locked': "audio is still locked — press Play once to unlock it",
   'notification.audio.unavailable': "no Web Audio here, so nothing can play",
@@ -362,14 +360,13 @@ function Choice({ t, labelKey, value, options, onChange, describe }) {
 /**
  * One state's card.
  *
- * **The bell's controls appear only while the bell is on.** The volume, the timbre and the melody
- * are meaningless with the sound switched off, and showing them would bury the switch that turns it
- * back on.
- *
- * **The test result is printed, not logged.** Pressing *Test* answers what this state would do right
- * now, and the answer is a sentence the user can act on rather than a line in a console nobody opens.
- * It is per card, because the state is what was tested and a single row-wide line would be ambiguous
- * the moment a second card was tried.
+ * **The card's controls appear only while the card is on.** The volume, the timbre and the melody are
+ * meaningless with the card switched off, and showing them would bury the switch that turns it back on.
+
+ * **The outcome is printed, not logged.** Pressing *Play* answers what this state would do right now,
+ * and the answer is a sentence the user can act on rather than a line in a console nobody opens. It is
+ * per card, because the state is what was played and a single row-wide line would be ambiguous the
+ * moment a second card was tried.
  *
  * @param props - `{ t, kind, state, count, defaults, result, onChange, onPlay }`.
  * @returns the card element.
@@ -377,7 +374,6 @@ function Choice({ t, labelKey, value, options, onChange, describe }) {
 export function StateCard({ t, kind, state, count, defaults, result, onChange, onPlay }) {
   const off = state.enabled !== true
   const melody = typeof state.melody === 'string' ? state.melody : ''
-  const soundOn = state.sound === true
   /** Write one field of this card. @param field @param value */
   const set = (field, value) => {
     onChange(kind, field, value)
@@ -419,27 +415,14 @@ export function StateCard({ t, kind, state, count, defaults, result, onChange, o
         labelKey: 'notification.enabled',
       }),
     ),
-    h(
-      'div',
-      { className: cn('row2') },
-      Check({
-        t,
-        id: `dsh-notification-${kind}-sound`,
-        checked: soundOn,
-        onChange: (value) => {
-          set('sound', value)
-        },
-        labelKey: 'notification.sound',
-      }),
-    ),
 
-    // ── the bell's own controls, and only while the bell is on ──────────────
+    // ── the bell's own controls, and only while the card is on ──────────────
     //
     // Flat in the card's own column, with no wrapper and no rule down the side. The vertical line was
     // there to say "these belong to the switch above", but the switch is directly above them and the
     // card holds nothing else — so it explained nothing and showed up as a stray edge in the
     // interface, which is exactly how it was reported.
-    soundOn
+    state.enabled === true
       ? h(
           'div',
           { className: cn('grid') },
@@ -471,7 +454,7 @@ export function StateCard({ t, kind, state, count, defaults, result, onChange, o
         )
       : null,
 
-    soundOn
+    state.enabled === true
       ? h(TextField, {
           t,
           labelKey: 'notification.melody',
@@ -482,7 +465,7 @@ export function StateCard({ t, kind, state, count, defaults, result, onChange, o
           },
         })
       : null,
-    soundOn ? h('div', { className: cn('note') }, t('notification.melodyHint')) : null,
+    state.enabled === true ? h('div', { className: cn('note') }, t('notification.melodyHint')) : null,
 
     result === undefined || result === null
       ? null
@@ -491,7 +474,7 @@ export function StateCard({ t, kind, state, count, defaults, result, onChange, o
     h(
       'div',
       { className: cn('actions') },
-      soundOn
+      state.enabled === true
         ? button(t('notification.play'), () => {
             onPlay(kind)
           })
