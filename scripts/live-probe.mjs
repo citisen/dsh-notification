@@ -319,11 +319,15 @@ async function drive(url) {
       const named = buttons.map((node) => (node.textContent ?? '').trim())
       const play = buttons.find((node) => /试听|Play/u.test(node.textContent ?? ''))
       if (play === undefined) return { pressed: false, named, reason: 'no play button' }
-      // The levels, measured rather than described: how wide the card is, and whether the controls in its
-      // grid actually share one row. A grid quietly falls back to one column when two tracks do not quite
-      // fit, which is invisible in the markup and obvious on screen — and it is what happened here, by
-      // three pixels, so it is worth a number rather than a look.
-      const grid = card.querySelector('[class*="dsh-notification-grid"]')
+      // Both grids, measured rather than described. This is the only layer that can see them: a grid
+      // quietly changes how many items share a line when the column width and the container disagree —
+      // invisible in the markup, obvious on screen, and it has already happened twice here, once with the
+      // row's settings packed onto one line by a rule meant for a card. So the numbers are read and
+      // returned, and the verdict counts them.
+      //
+      // The card's levels grid is queried by its own class. It used to share one with the row's settings,
+      // which is exactly how a change aimed at a card reached the row.
+      const grid = card.querySelector('[class*="dsh-notification-levels"]')
       const tops = grid === null ? [] : [...grid.children].map((node) => Math.round(node.getBoundingClientRect().top))
       const measured = {
         cardWidth: Math.round(card.getBoundingClientRect().width),
@@ -332,6 +336,16 @@ async function drive(url) {
         children: tops.length,
         onOneRow: tops.length > 1 && tops.every((top) => top === tops[0]),
       }
+      const globalGrid = row.querySelector('[class*="dsh-notification-globals"]')
+      const globalTops = globalGrid === null
+        ? []
+        : [...globalGrid.children].map((node) => Math.round(node.getBoundingClientRect().top))
+      const globals = {
+        width: globalGrid === null ? null : Math.round(globalGrid.getBoundingClientRect().width),
+        columns: globalGrid === null ? null : getComputedStyle(globalGrid).gridTemplateColumns,
+        children: globalTops.length,
+        rows: new Set(globalTops).size,
+      }
       play.click()
       await new Promise((resolve) => setTimeout(resolve, 2500))
       const result = card.querySelector('[class*="dsh-notification-result"]')
@@ -339,6 +353,7 @@ async function drive(url) {
         pressed: true,
         named,
         measured,
+        globals,
         result: result === null ? null : (result.textContent ?? '').trim(),
       }
     })()`,
@@ -435,6 +450,43 @@ async function drive(url) {
   }
   if (playedNow.pressed === true && (typeof playedNow.result !== 'string' || playedNow.result.length === 0)) {
     problems.push('playing printed nothing under the card')
+  }
+
+  // The card's two levels share one row. A grid falls back to one column when two tracks do not quite
+  // fit, and the count check is separate from the row check on purpose: a selector that matches nothing
+  // reports zero children, and "they are not on one row" would then be quietly true of nothing.
+  const measured = playedNow.measured ?? {}
+  if (measured.children !== 2) {
+    problems.push(`the card's levels grid rendered ${String(measured.children ?? 0)} field(s), expected 2`)
+  }
+  if (measured.onOneRow !== true) {
+    problems.push(
+      `the card's levels are stacked, not on one row (card ${String(measured.cardWidth)}px, ` +
+        `grid ${String(measured.gridWidth)}px, columns ${String(measured.columns)})`,
+    )
+  }
+
+  // The row's own settings are two per line — the count that was wrong when a card's column rule was
+  // shared with this grid and packed all five onto one line.
+  const globals = playedNow.globals ?? {}
+  if (globals.children === 0) {
+    problems.push("the row's settings grid did not render")
+  } else {
+    // The columns are counted as *tokens*, not as distinct values: two equal tracks are two columns, and
+    // `new Set("231px 231px".split(" "))` is one entry — which is how this check first reported "3 rows of
+    // 1" for a grid that was 3 rows of 2.
+    const perLine = globals.columns === null ? 0 : globals.columns.trim().split(/\s+/u).filter(Boolean).length
+    if (perLine > 2) {
+      problems.push(
+        `the row's settings show ${String(perLine)} per line, not 2 (columns ${String(globals.columns)})`,
+      )
+    }
+    if (globals.rows * perLine < globals.children) {
+      problems.push(
+        `the row's settings lay ${String(globals.children)} items into ${String(globals.rows)} rows of ` +
+          `${String(perLine)} — they do not fit`,
+      )
+    }
   }
 
   if ((controls.emptyNumbers ?? 0) !== 0) {

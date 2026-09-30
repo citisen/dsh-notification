@@ -92,12 +92,17 @@ export const ROW_CSS = [
   `.${cn('problem')}{color:var(--dsw-alias-state-warn-primary);font-family:var(--ds-font-family-code,ui-monospace,monospace);font-size:11px;line-height:16px}`,
   `.${cn('note')}{color:var(--dsw-alias-label-tertiary);font-size:11px;line-height:16px}`,
   `.${cn('warning')}{color:var(--dsw-alias-state-warn-primary);font-size:11px;line-height:16px}`,
-  // The levels share one row. The floor is 88px rather than a round 100 for a measured reason: the card's
-  // content box is about 265px wide, a laid-out {@link NumberField} needs around 128px, and two of them
-  // plus this gap came to 268px — three pixels too many, so the grid quietly fell back to one field per
-  // row. The gap is 8px and the floor is below half the content box, which is what makes two tracks fit
-  // with room to spare rather than by three pixels.
-  `.${cn('grid')}{display:grid;grid-template-columns:repeat(auto-fit,minmax(88px,1fr));gap:6px 8px}`,
+  // The row's own settings, two per line. 200px is a measurement rather than a preference: the row is
+  // 475px wide, so two tracks of about 230px fit with the gap and a third does not. The card's grid used
+  // to share this rule and was briefly set to 88px, which put all five of these on one line; the two are
+  // separate classes now so that a change aimed at a card cannot reach the row.
+  `.${cn('globals')}{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px 12px}`,
+  // The two controls inside one state card, side by side. Measured: the card's content box is about
+  // 265px, a {@link NumberField} and a {@link Choice} laid out one above the other need a bit over
+  // 120px each, and this gap leaves them fitting with room to spare. A floor of 200px — which is right
+  // for the row's own settings — is wrong here: with `auto-fit` it guarantees a single column, because
+  // two 200px tracks need 400px and the card has 265.
+  `.${cn('levels')}{display:grid;grid-template-columns:repeat(auto-fit,minmax(118px,1fr));gap:6px 8px}`,
   // The vertical switcher and its panel, side by side. The switcher is a column of names rather
   // than a row of tabs, because a state name is a phrase rather than a word — six of them in a row
   // wrap onto a second line, and a wrapped tab strip reads as a list of controls rather than as a
@@ -115,16 +120,15 @@ export const ROW_CSS = [
   `.${cn('picker')}[data-off="true"]{opacity:.6}`,
   `.${cn('pickerCount')}{border-radius:999px;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-tertiary);padding:0 6px;font-size:11px;font-variant-numeric:tabular-nums}`,
   `.${cn('side')}{flex:1;min-width:0;display:flex}`,
-  // The compact number field: a label and its short box on one line. This is the control that makes
   // the row fit — see {@link NumberField}.
-  `.${cn('num')}{align-items:center;gap:8px;min-width:0;display:flex;justify-content:space-between}`,
-  `.${cn('numLabel')}{color:var(--dsw-alias-label-secondary);font-size:12px;line-height:18px;min-width:0}`,
-  `.${cn('numBox')}{align-items:center;gap:4px;flex:none;display:inline-flex}`,
-  `.${cn('numBox')} .${cn('input')}{width:56px;text-align:right;font-variant-numeric:tabular-nums}`,
+  `.${cn('numBox')}{align-items:center;gap:5px;display:inline-flex}`,
+  // Wide enough for four digits and a percent, and no wider: under its label there is nothing to
+  // stretch against, and a box the width of the card would be a box nobody asked for.
+  `.${cn('numBox')} .${cn('input')}{width:72px;text-align:right;font-variant-numeric:tabular-nums}`,
   // The spinner takes a third of a five-character box and the value is typed, not clicked.
   `.${cn('numBox')} .${cn('input')}::-webkit-outer-spin-button,.${cn('numBox')} .${cn('input')}::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}`,
   `.${cn('numBox')} .${cn('input')}{-moz-appearance:textfield;appearance:textfield}`,
-  `.${cn('numSuffix')}{color:var(--dsw-alias-label-tertiary);font-size:11px;line-height:16px;min-width:18px}`,
+  `.${cn('numSuffix')}{color:var(--dsw-alias-label-tertiary);font-size:11px;line-height:16px}`,
   // The last test's outcome. It renders at normal weight in the secondary colour rather than as a
   // warning: a state that would do nothing is information, not a fault.
   `.${cn('result')}{color:var(--dsw-alias-label-secondary);font-size:11px;line-height:16px;overflow-wrap:anywhere}`,
@@ -282,10 +286,14 @@ function Check({ t, checked, onChange, labelKey, id }) {
  */
 function NumberField({ t, labelKey, value, min, max, step, suffix, onChange, toDisplay, fromDisplay }) {
   const shown = typeof toDisplay === 'function' ? toDisplay(value) : value
+  // The same shape as {@link TextField} and {@link Choice}: a label, then the control under it. The
+  // number box used to put its label *beside* the box, which made one card show its label to the left
+  // and the next show it above — reported as "sometimes left, sometimes above" — and it also spent the
+  // width that decides whether two of these fit on one row.
   return h(
     'label',
-    { className: cn('num') },
-    h('span', { className: cn('numLabel') }, t(labelKey)),
+    { className: cn('field') },
+    h('span', { className: cn('label') }, t(labelKey)),
     h(
       'span',
       { className: cn('numBox') },
@@ -430,7 +438,7 @@ export function StateCard({ t, kind, state, count, defaults, result, onChange, o
     state.enabled === true
       ? h(
           'div',
-          { className: cn('grid') },
+          { className: cn('levels') },
           h(NumberField, {
             t,
             labelKey: 'notification.volume',
@@ -575,7 +583,7 @@ export function NotificationRow({
     // explains — which is the same argument that put these here instead of behind a tab.
     h(
       'div',
-      { className: cn('grid') },
+      { className: cn('globals') },
       h(NumberField, {
         t,
         labelKey: 'notification.masterVolume',
