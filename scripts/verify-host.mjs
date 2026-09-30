@@ -41,6 +41,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 
 import {
   GLOBAL_DEFAULTS,
+  GLOBAL_FIELDS,
   SETTINGS_VERSION,
   STATE_DEFAULTS,
   STATE_FIELDS,
@@ -252,6 +253,48 @@ assert.deepEqual(
   'these fields are not volatile, so the settings model cannot see them and a write to them ' +
     'is refused',
 )
+
+// ── 4. the paths a control writes are paths the host accepts ────────────────
+//
+// A `set` operation carries a path, and the host validates it against the schema
+// before persisting: a path it cannot resolve, or one whose leaf is not volatile,
+// comes back refused — and a refusal is invisible in the interface, because the write
+// resolves `false` and nothing throws. So every path the settings row can write is
+// resolved here against the same schema the host validates with.
+// `version` is deliberately absent: it has no control, so its path is never written by
+// a user edit — it exists so a future migration has something to read, and the host's
+// own schema check covers it by round-tripping the shipped section above.
+const written = [...Object.keys(GLOBAL_DEFAULTS)]
+for (const kind of STATE_KINDS) {
+  for (const field of STATE_FIELDS) written.push(`states.${kind}.${field.id}`)
+}
+
+for (const path of written) {
+  const segments = path.split('.')
+  const leaf = segments.at(-1)
+  // The row writes one field at a time, so the candidate is a copy of the defaults
+  // with that one field flipped to a legal value of its own kind.
+  const candidate = structuredClone(shipped)
+  let cursor = candidate
+  for (const segment of segments.slice(0, -1)) cursor = cursor[segment]
+  const field = [...STATE_FIELDS, ...GLOBAL_FIELDS].find((entry) => entry.id === leaf)
+  const current = cursor[leaf]
+  cursor[leaf] =
+    field?.kind === 'boolean'
+      ? !current
+      : field?.kind === 'number'
+        ? Math.max(field.min ?? 0, Math.min(field.max ?? current, current / 2 || 1))
+        : field?.kind === 'choice'
+          ? field.values[field.values.length - 1]
+          : `${String(current)}x`
+  const outcome = host.Config['~standard'].validate(candidate)
+  assert.equal(
+    outcome.issues,
+    undefined,
+    `the host would refuse a write to '${path}': ${JSON.stringify(outcome.issues)}. A control that ` +
+      'writes a path the host rejects looks like a switch that does nothing.',
+  )
+}
 
 // And nothing extra: a volatile field the client never writes is a field the user
 // can see in a generated page and cannot control here.
