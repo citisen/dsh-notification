@@ -287,17 +287,26 @@ async function drive(url) {
     awaitPromise: true,
   })
 
-  // Press the card's own test button, in the card the switcher is showing, and read the line it
-  // prints. This is the plugin's own answer about its own capability.
-  const tested = await socket.send('Runtime.evaluate', {
+  // The card's action row: one button that plays the sound and says what happened, and one that
+  // resets. Two buttons the user could not tell apart is what this replaced, so the *count* is part of
+  // the assertion rather than only the labels.
+  //
+  // Pressing it is also the real check: it must print a sentence, and it must not throw — an audio
+  // path that fails in the page would leave the card silent with nothing said about it.
+  const playedResult = await socket.send('Runtime.evaluate', {
     expression: `(async () => {
-      const button = [...document.querySelectorAll('[class*="dsh-notification"] button')].find((node) => /Test notification|测试通知/u.test(node.textContent ?? ''))
-      if (button === undefined) return { pressed: false, reason: 'no test button in the row' }
-      button.click()
+      const row = document.querySelector('[class*="dsh-notification-row"]')
+      if (row === null) return { error: 'no row' }
+      const buttons = [...row.querySelectorAll('[class*="dsh-notification-actions"] button')]
+      const named = buttons.map((node) => (node.textContent ?? '').trim())
+      const play = buttons.find((node) => /试听|Play/u.test(node.textContent ?? ''))
+      if (play === undefined) return { pressed: false, named, reason: 'no play button' }
+      play.click()
       await new Promise((resolve) => setTimeout(resolve, 2500))
-      const result = document.querySelector('[class*="dsh-notification-result"]')
+      const result = row.querySelector('[class*="dsh-notification-result"]')
       return {
         pressed: true,
+        named,
         result: result === null ? null : (result.textContent ?? '').trim(),
       }
     })()`,
@@ -324,7 +333,7 @@ async function drive(url) {
   console.log('===== SETTINGS DIALOG =====')
   console.log(JSON.stringify(opened.result?.value ?? opened, null, 2))
   console.log('===== TEST BUTTON =====')
-  console.log(JSON.stringify(tested.result?.value ?? tested, null, 2))
+  console.log(JSON.stringify(playedResult.result?.value ?? playedResult, null, 2))
 
   // Whether the ask *itself* is what denies. The card reported `default` before its button
   // was pressed and `denied` after, which would mean the plugin is destroying the
@@ -382,6 +391,20 @@ async function drive(url) {
   // while showing the user nothing, which is how a converted control ends up looking broken.
   if ((controls.sliders ?? 0) !== 0) problems.push(`${String(controls.sliders)} slider(s) remain`)
   if ((controls.numbers ?? 0) === 0) problems.push('no number field rendered')
+  // The card's action row: exactly two buttons, neither of them a "test", and pressing the play one
+  // produced a sentence.
+  const playedNow = (playedResult.result?.value ?? {})
+  if (playedNow.pressed !== true) problems.push(`the play button did not run: ${String(playedNow.reason ?? playedNow.error ?? 'unknown')}`)
+  if (!Array.isArray(playedNow.named) || playedNow.named.length !== 2) {
+    problems.push(`the card offers ${String(playedNow.named?.length ?? 0)} buttons, not 2`)
+  }
+  for (const name of playedNow.named ?? []) {
+    if (/test|测试/iu.test(name)) problems.push(`a button is still labelled "${name}"`)
+  }
+  if (playedNow.pressed === true && (typeof playedNow.result !== 'string' || playedNow.result.length === 0)) {
+    problems.push('playing printed nothing under the card')
+  }
+
   if ((controls.emptyNumbers ?? 0) !== 0) {
     problems.push(
       `${String(controls.emptyNumbers)} number field(s) render empty (values: ${JSON.stringify(controls.numberValues)})`,

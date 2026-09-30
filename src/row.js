@@ -60,7 +60,10 @@ export function cn(name) {
  * control that wandered in from somewhere else.
  */
 export const ROW_CSS = [
-  `.${cn('row')}{flex-direction:column;gap:16px;display:flex;border-bottom:.5px solid var(--dsw-alias-border-l2);padding:16px 0}`,
+  // The row is a plain column. The separators in a settings panel belong to the panel — it already
+  // draws a rule between the rows it composes — and a rule of this row's own showed up as a stray edge
+  // (reported from the interface), as well as fighting the panel's spacing.
+  `.${cn('row')}{flex-direction:column;gap:16px;display:flex;padding:4px 0}`,
   `.${cn('head')}{flex-direction:column;gap:4px;display:flex}`,
   `.${cn('title')}{color:var(--dsw-alias-label-primary);font-size:14px;line-height:22px}`,
   `.${cn('desc')}{color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:18px}`,
@@ -88,8 +91,6 @@ export const ROW_CSS = [
   `.${cn('problems')}{flex-direction:column;gap:2px;display:flex}`,
   `.${cn('problem')}{color:var(--dsw-alias-state-warn-primary);font-family:var(--ds-font-family-code,ui-monospace,monospace);font-size:11px;line-height:16px}`,
   `.${cn('note')}{color:var(--dsw-alias-label-tertiary);font-size:11px;line-height:16px}`,
-  `.${cn('tokens')}{color:var(--dsw-alias-label-tertiary);font-size:11px;line-height:16px}`,
-  `.${cn('tokens')} code{font-family:var(--ds-font-family-code,ui-monospace,monospace);color:var(--dsw-alias-label-secondary)}`,
   `.${cn('warning')}{color:var(--dsw-alias-state-warn-primary);font-size:11px;line-height:16px}`,
   `.${cn('grid')}{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:6px 12px}`,
   // The vertical switcher and its panel, side by side. The switcher is a column of names rather
@@ -119,9 +120,6 @@ export const ROW_CSS = [
   `.${cn('numBox')} .${cn('input')}::-webkit-outer-spin-button,.${cn('numBox')} .${cn('input')}::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}`,
   `.${cn('numBox')} .${cn('input')}{-moz-appearance:textfield;appearance:textfield}`,
   `.${cn('numSuffix')}{color:var(--dsw-alias-label-tertiary);font-size:11px;line-height:16px;min-width:18px}`,
-  // A channel's own controls, indented under the switch that turns them on: the indentation is what
-  // says "these belong to that switch" without a second heading.
-  `.${cn('group')}{flex-direction:column;gap:6px;border-left:2px solid var(--dsw-alias-border-l2);padding-left:10px;display:flex}`,
   // The last test's outcome. It renders at normal weight in the secondary colour rather than as a
   // warning: a state that would do nothing is information, not a fault.
   `.${cn('result')}{color:var(--dsw-alias-label-secondary);font-size:11px;line-height:16px;overflow-wrap:anywhere}`,
@@ -148,8 +146,7 @@ export const zh = {
   'notification.voice': '音色',
   'notification.melody': '旋律',
   'notification.melodyHint': '音名加时值，例如 A5:200ms E6:200ms；off 表示不出声',
-  'notification.audition': '试听',
-  'notification.test': '测试通知',
+  'notification.play': '试听',
   'notification.reset': '恢复默认',
   'notification.masterVolume': '总音量',
   'notification.masterVolumeHint': '与各卡片自己的音量相乘',
@@ -193,8 +190,7 @@ export const en = {
   'notification.voice': "Timbre",
   'notification.melody': "Melody",
   'notification.melodyHint': "note names with lengths, e.g. A5:200ms E6:200ms; off for silence",
-  'notification.audition': "Play",
-  'notification.test': "Test",
+  'notification.play': "Play",
   'notification.reset': "Reset",
   'notification.masterVolume': "Master volume",
   'notification.masterVolumeHint': "multiplied by each card's own level",
@@ -379,10 +375,10 @@ function Choice({ t, labelKey, value, options, onChange, describe }) {
  * It is per card, because the state is what was tested and a single row-wide line would be ambiguous
  * the moment a second card was tried.
  *
- * @param props - `{ t, kind, state, count, defaults, result, onChange, onAudition, onTest }`.
+ * @param props - `{ t, kind, state, count, defaults, result, onChange, onPlay }`.
  * @returns the card element.
  */
-export function StateCard({ t, kind, state, count, defaults, result, onChange, onAudition, onTest }) {
+export function StateCard({ t, kind, state, count, defaults, result, onChange, onPlay }) {
   const off = state.enabled !== true
   const melody = typeof state.melody === 'string' ? state.melody : ''
   const soundOn = state.sound === true
@@ -441,61 +437,57 @@ export function StateCard({ t, kind, state, count, defaults, result, onChange, o
       }),
     ),
 
-    // ── the bell, and only the bell's own controls ──────────────────────────
+    // ── the bell's own controls, and only while the bell is on ──────────────
+    //
+    // Flat in the card's own column, with no wrapper and no rule down the side. The vertical line was
+    // there to say "these belong to the switch above", but the switch is directly above them and the
+    // card holds nothing else — so it explained nothing and showed up as a stray edge in the
+    // interface, which is exactly how it was reported.
     soundOn
       ? h(
           'div',
-          { className: cn('group') },
-          h(
-            'div',
-            { className: cn('grid') },
-            h(NumberField, {
-              t,
-              labelKey: 'notification.volume',
-              value: state.volume,
-              min: 0,
-              max: 1,
-              step: 0.05,
-              suffix: '%',
-              // Stored as a fraction, shown as a percentage — see {@link NumberField}.
-              toDisplay: (fraction) => Math.round(fraction * 100),
-              fromDisplay: (percent) => percent / 100,
-              onChange: (value) => {
-                set('volume', value)
-              },
-            }),
-            h(Choice, {
-              t,
-              labelKey: 'notification.voice',
-              value: state.voice,
-              options: VOICE_NAMES,
-              onChange: (value) => {
-                set('voice', value)
-              },
-              describe: (name) => VOICES[name]?.label ?? name,
-            }),
-          ),
-          h(TextField, {
+          { className: cn('grid') },
+          h(NumberField, {
             t,
-            labelKey: 'notification.melody',
-            value: melody,
-            placeholder: defaults.melody,
+            labelKey: 'notification.volume',
+            value: state.volume,
+            min: 0,
+            max: 1,
+            step: 0.05,
+            suffix: '%',
+            // Stored as a fraction, shown as a percentage — see {@link NumberField}.
+            toDisplay: (fraction) => Math.round(fraction * 100),
+            fromDisplay: (percent) => percent / 100,
             onChange: (value) => {
-              set('melody', value)
+              set('volume', value)
             },
           }),
-          h('div', { className: cn('note') }, t('notification.melodyHint')),
-          h(
-            'div',
-            { className: cn('actions') },
-            button(t('notification.audition'), () => {
-              onAudition(kind)
-            }),
-          ),
+          h(Choice, {
+            t,
+            labelKey: 'notification.voice',
+            value: state.voice,
+            options: VOICE_NAMES,
+            onChange: (value) => {
+              set('voice', value)
+            },
+            describe: (name) => VOICES[name]?.label ?? name,
+          }),
         )
       : null,
 
-    // The outcome of the last test, in words.
+    soundOn
+      ? h(TextField, {
+          t,
+          labelKey: 'notification.melody',
+          value: melody,
+          placeholder: defaults.melody,
+          onChange: (value) => {
+            set('melody', value)
+          },
+        })
+      : null,
+    soundOn ? h('div', { className: cn('note') }, t('notification.melodyHint')) : null,
+
     result === undefined || result === null
       ? null
       : h('div', { className: cn('result'), role: 'status' }, result),
@@ -503,9 +495,11 @@ export function StateCard({ t, kind, state, count, defaults, result, onChange, o
     h(
       'div',
       { className: cn('actions') },
-      button(t('notification.test'), () => {
-        onTest(kind)
-      }),
+      soundOn
+        ? button(t('notification.play'), () => {
+            onPlay(kind)
+          })
+        : null,
       button(t('notification.reset'), () => {
         onChange(kind, undefined, undefined, true)
       }),
@@ -541,7 +535,7 @@ export function StateCard({ t, kind, state, count, defaults, result, onChange, o
  * counts line up, and — the reason this is shorter than the tabbed version at all — the card sits
  * *beside* the names instead of below them.
  *
- * @param props - `{ t, useNotification, permission, audio, onChange, onAudition, onTest, onReset }`.
+ * @param props - `{ t, useNotification, audio, onChange, onPlay }`.
  * @returns the row element.
  */
 export function NotificationRow({
@@ -550,9 +544,7 @@ export function NotificationRow({
   permission,
   audio,
   onChange,
-  onAudition,
-  onTest,
-  onReset,
+  onPlay,
 }) {
   // One selector over the whole store: a per-field subscription would be more machinery than the
   // work it saves for a panel this size. `results` — the outcome of each card's last test — arrives
@@ -720,25 +712,8 @@ export function NotificationRow({
           defaults: STATE_DEFAULTS[subject],
           result: results?.[subject],
           onChange,
-          onAudition,
-          onTest,
+          onPlay,
         }),
-      ),
-    ),
-
-    h(
-      'div',
-      { className: cn('actions') },
-      h(
-        'button',
-        {
-          type: 'button',
-          className: cn('button'),
-          onClick: () => {
-            onReset()
-          },
-        },
-        t('notification.reset'),
       ),
     ),
   )

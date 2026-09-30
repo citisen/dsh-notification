@@ -112,9 +112,16 @@ On a card:
 | Volume | this card's level, multiplied by the master volume |
 | Timbre | one of the eleven voices below |
 | Melody | the notes to play — see below |
-| Play | audition it; this also unlocks audio for the session |
-| Test notification | reports what this state would do right now |
+| Play | plays the sound and reports what happened — see below |
 | Reset | puts every field on this card back to its shipped value |
+
+**Play does two things at once**, which is why there is one button and not two. It plays the state's
+sound through the real audio path — the actual timbre, the actual melody, the actual product of the
+card's volume and the master's — and then prints a line under the card saying what the engine made of
+the request: `Play a sound: marimba @ 100%`, or the reason nothing would happen. Pressing it on a state
+that is switched off still answers the question, by testing the card as though it were on.
+
+It is also the click that unlocks audio the first time.
 
 ## The melody
 

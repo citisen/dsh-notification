@@ -50,7 +50,7 @@ import { NotificationRow, ROW_CSS, en, zh } from './row.js'
 import { createFailureLog, createSpeechLog, diffStatus, observe, tally } from './states.js'
 import { createPlayer } from './sound.js'
 import { describePlan, gapElapsed, planEvent } from './engine.js'
-import { resolveSettings, stateGain } from './settings.js'
+import { resolveSettings } from './settings.js'
 import { STATE_KINDS } from './states.js'
 
 /**
@@ -486,51 +486,49 @@ export function apply(ctx) {
    * @param kind - the state.
    * @returns a line for the card to print, or undefined.
    */
-  const audition = (kind) => {
-    const settings = store.getSnapshot().settings
-    const state = settings.states[kind]
-    player.setMaster(settings.masterVolume)
-    const played = player.play(state.melody, state.voice, stateGain(settings, kind))
-    return played ? undefined : 'audition-failed'
-  }
-
   /**
-   * Report what one state would do right now, without waiting for a session to be in it.
+   * Play one state's sound and report what happened.
    *
-   * The card's own switch is treated as on for this one test, so pressing the button on a state that
-   * happens to be switched off still answers a useful question instead of reporting the switch the
-   * user is looking at. The answer is a sentence — which voice, at what level, or why nothing would
-   * happen — because "did that work?" is the question the button exists for and a console line is not
-   * an answer a user can act on.
+   * One button, because there is one thing to do. It plays the state's sound through the real audio
+   * path — the actual voice, the actual melody, the actual product of both volume levels — and then
+   * prints what the engine made of the request. That makes it both a preview and the answer to "will
+   * this work?", which is why the separate *Test* button that used to sit beside it is gone: it planned
+   * a sound and printed a sentence without playing anything, so the two buttons differed only in that
+   * one of them did the thing the user had asked for.
+   *
+   * The card's own switch is treated as on for this one play, so pressing the button on a state that
+   * happens to be switched off still answers a useful question instead of reporting the switch the user
+   * is looking at.
+   *
+   * It is also the gesture that unlocks audio: pressing Play is both the most direct way to make a
+   * sound and the most natural way to grant the browser the gesture it wants, which is why there is no
+   * separate unlock control.
    *
    * @param kind - the state.
    * @returns a promise for the line to print.
    */
-  const test = async (kind) => {
+  const play = async (kind) => {
     const t = ctx.locale.bind(LOCALE_NAMESPACE)
     const settings = store.getSnapshot().settings
-
-    // The card's own switches are treated as on for this one test, so pressing the button on a state
-    // that happens to be switched off still answers a useful question instead of reporting the switch
-    // the user is looking at.
     const plan = planEvent({
-      event: {
-        kind,
-        sessionId: 'test',
-        title: t('notification.title'),
-        summary: t('notification.description'),
-        isMain: false,
-      },
+      event: { kind, sessionId: 'play', isMain: false },
       settings: {
         ...settings,
         enabled: true,
         states: { ...settings.states, [kind]: { ...settings.states[kind], enabled: true } },
       },
-      counts: store.getSnapshot().counts,
-      stateLabel: t(`notification.state.${kind}`),
       visibility: readVisibility(view),
       now: Date.now(),
     })
+
+    // Only a plan that would actually make a sound is played. Playing one the engine refused would
+    // teach the user the wrong thing about their own settings — the card would ring while its own
+    // summary said it would not.
+    if (plan.sound !== undefined) {
+      player.setMaster(settings.masterVolume)
+      // The plan's own gain, so what is heard is exactly what a real event would produce.
+      player.play(plan.sound.melody, plan.sound.voice, plan.sound.gain)
+    }
 
     const line = describePlan(plan, t)
     // Kept in the store so the row re-renders with it, and so it survives the panel being closed and
@@ -598,14 +596,7 @@ export function apply(ctx) {
           // whatever source it is given, by calling `getSnapshot` on it.
           hooks: { notification: store.instance },
           onChange: change,
-          onAudition: audition,
-          onTest: test,
-          onReset: () => {
-            if (form === undefined) return
-            void Promise.resolve(form.unset('states')).then(() => {
-              void Promise.resolve(form.unset('version'))
-            })
-          },
+          onPlay: play,
           audio: player.state(),
         }),
       },

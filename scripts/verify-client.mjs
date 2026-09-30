@@ -238,6 +238,13 @@ for (const token of ['--dsw-alias-label-primary', '--dsw-alias-border-l4']) {
   assert.ok(exports_.ROW_CSS.includes(token), `the stylesheet must use ${token}`)
 }
 
+// No one-sided rules. A `border-left` with no width, style and colour of its own is how the row grew a
+// stray vertical line down the side of the sound controls: the shorthand's colour went missing against a
+// token the theme does not define, and what remained painted as an edge that meant nothing and was
+// reported as one. Nothing in this row is aligned by a rule, so none of them belong here.
+const oneSided = exports_.ROW_CSS.match(/border-(?:top|right|bottom|left)\s*:/gu) ?? []
+assert.deepEqual(oneSided, [], 'the row must not draw a one-sided border')
+
 // ── the state machine, on the shipped bundle ────────────────────────────────
 
 /** @param rows - `[id, row]` pairs. @returns a list snapshot. */
@@ -452,9 +459,16 @@ assert.deepEqual(
 // The injected actions, exactly as the slot registry composes them.
 const injected = slotRow.options.inject()
 assert.equal(typeof injected.onChange, 'function')
-assert.equal(typeof injected.onAudition, 'function')
-assert.equal(typeof injected.onTest, 'function')
-assert.equal(typeof injected.onReset, 'function')
+assert.equal(typeof injected.onPlay, 'function')
+// Reset is per card, so the row has no reset action and no row-wide button. The row-wide one carried
+// the card button's own label, so the interface showed two buttons called "Reset" — one for the card the
+// user was looking at and one for all six — and nothing on screen distinguished them.
+assert.equal(injected.onReset, undefined, 'resetting is per card')
+// One button, so one action. The card used to receive `onAudition` and `onTest` — two names for a
+// preview and a report that were the same job attempted twice — and the interface showed two buttons
+// the user could not tell apart.
+assert.equal(injected.onAudition, undefined, 'the separate audition action is gone')
+assert.equal(injected.onTest, undefined, 'the separate test action is gone')
 assert.ok(injected.hooks?.notification !== undefined, 'the row needs its store hook')
 // The store seat is bound by the renderer calling `getSnapshot` on whatever it is given,
 // so an object without one registers successfully, renders nothing, and is reported as
@@ -668,6 +682,25 @@ if (!exports_.NOTIFICATIONS_ENABLED) {
     1,
     'the card renders one text field — the melody — and no banner template fields',
   )
+
+  // One button for the sound and one to reset. Two buttons a user cannot tell apart — "Play" and
+  // "Test", where the second planned a sound and printed a sentence without playing anything — is what
+  // the card used to show, and it is the half of the layout that a node count can hold in place.
+  const buttons = fields.filter((node) => node.type === 'button')
+  assert.equal(buttons.length, 2, 'the card offers Play and Reset, and nothing else')
+  const labels = buttons.map((node) => JSON.stringify(node.children))
+  assert.ok(
+    labels.some((text) => text.includes(label('notification.play'))),
+    'one of the buttons must be the play button',
+  )
+  assert.ok(
+    labels.some((text) => text.includes(label('notification.reset'))),
+    'one of the buttons must be reset',
+  )
+  assert.ok(
+    !labels.some((text) => text.includes('测试') || text.includes('Test')),
+    'no button may be labelled a test: the action it named is gone',
+  )
 }
 
 
@@ -692,12 +725,12 @@ assert.ok(resetOps.every((operation) => operation.path[1] === 'done'))
 injected.onChange(undefined, 'masterVolume', 0.25)
 assert.deepEqual(recorded.writes.at(-1).operations[0].path, ['masterVolume'])
 
-// The audition path must face an environment with no Web Audio without throwing, and the test path
-// must report what the state would do as a sentence the user can act on.
-assert.doesNotThrow(() => injected.onAudition('question'))
-const tested = await injected.onTest('question')
-assert.equal(typeof tested, 'string', 'a test must report its outcome as text')
-assert.ok(tested.length > 0, 'a test must say something')
+// The play path must face an environment with no Web Audio without throwing, and must report what the
+// state would do as a sentence the user can act on. Both, from one call — that is the point of there
+// being one button.
+const played = await injected.onPlay('question')
+assert.equal(typeof played, 'string', 'playing must report its outcome as text')
+assert.ok(played.length > 0, 'playing must say something')
 
 globalThis.window = previousWindow
 delete globalThis.document
