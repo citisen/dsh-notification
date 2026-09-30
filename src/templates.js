@@ -66,11 +66,20 @@ export function renderTemplate(template, context = {}) {
 
 /**
  * Which of a template's placeholders are unknown.
+ *
+ * The probe context is the whole point of this function, and getting it wrong was this
+ * function's original bug: an *empty* context makes every placeholder unknown, so a card
+ * warned "this field is not known, so it is shown as written" about `{title}` —
+ * a placeholder that is entirely correct. A warning that fires on everything is worse
+ * than no warning, because it teaches the user to ignore the one that matters. So the
+ * known names are passed as the keys of the context, all of them, with no values.
+ *
  * @param template - the template text.
  * @returns the names, in first-appearance order.
  */
 export function unknownFields(template) {
-  return renderTemplate(template, {}).unknown
+  const known = Object.fromEntries(TEMPLATE_FIELDS.map((field) => [field.name, undefined]))
+  return renderTemplate(template, known).unknown
 }
 
 /**

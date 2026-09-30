@@ -172,18 +172,37 @@ A third knob, *do not repeat the same state within*, rate-limits a session that 
 
 ```sh
 npm run check        # build is current + unit tests + both halves
-npm run check:all    # plus booting a real profile
+npm run check:all    # plus booting a real profile and driving the real page
 ```
 
 | Check | Covers |
 | --- | --- |
 | `node --test` | 115 unit tests over the pure half: melody parsing and scheduling, the state machine's edges, the template vocabulary, the notification permission states, the policy (`admit`, `soundAllowed`), and the engine's plan. |
-| `verify-host.mjs` | The host half against the **real schema library**: the patch row id equals the settings namespace, the schema round-trips the shipped defaults, and all 57 field paths are `volatile` — the failure that renders a settings page on which nothing ever saves. |
-| `verify-client.mjs` | The **emitted bundle**: its envelope, that it requires only platform singletons, that both dictionaries have the same keys, that the stylesheet uses design tokens rather than literal colours, the state machine and engine on the shipped artifact, and `apply()` against stub services with the row actually rendered — 364 nodes, one card per state. |
+| `verify-host.mjs` | The host half against the **real schema library**: the patch row id equals the settings namespace, the schema round-trips the shipped defaults, all 57 field paths are `volatile`, and every path a control writes is accepted — the failures that render a settings page on which nothing ever saves. |
+| `verify-client.mjs` | The **emitted bundle**: its envelope, that it requires only platform singletons, that both dictionaries have the same keys, that the stylesheet uses design tokens rather than literal colours, the state machine and engine on the shipped artifact, and `apply()` against stub services with the row rendered — one card per state, and the store seat asserted to have the shape the renderer binds to. |
 | `verify-profile.mjs` | The **real loader**: a mirror profile composes the row, boots with no failed plugin, and answers on its own port. |
+| `live-probe.mjs` | The **real page in a real browser**, driven over the DevTools protocol: it boots a profile, opens the interface, opens the settings dialog, and looks for the card — failing on `slot entry crashed`, on a missing row, or on any uncaught error. |
 
-The first three need nothing but Node. The fourth needs the desktop application installed
-and skips cleanly without it.
+The first three need nothing but Node. The last two need the desktop application installed
+and skip cleanly without it.
+
+### Why the live probe exists
+
+It was added after this plugin shipped its first real bug, and the bug is worth recording
+because the other four layers all passed while it was live.
+
+The plugin passed a `defineStore` **handle** as the slot's store seat. A handle carries
+`spec` and `create`; the *instance* carries `getSnapshot` and `subscribe`, and the renderer
+binds its selector hook to whatever it is handed. So the row registered successfully, the
+slot renderer accepted the registration, and the component threw
+`getSnapshot is not a function` on its first render. The shell reported
+`slot entry crashed in 'settings.general.item'` — a card present in the ledger and absent
+from the screen, which is exactly what the user saw: *the plugin list has it, the settings
+panel does not*.
+
+Every stub in this repository had modelled the store the way the plugin used it, so all of
+them agreed with the bug. Only the real page could disagree, which is the argument for
+keeping a layer that needs a browser.
 
 ## Development
 
@@ -191,6 +210,7 @@ and skips cleanly without it.
 npm run build     # src/ -> lib/client.js
 npm run watch     # rebuild on save
 npm run sound     # the melody analyzer
+npm run live      # drive the real GUI and report what it says
 ```
 
 `src/client.js` is the browser half's entry. It is written as ES modules for readability,

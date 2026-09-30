@@ -156,6 +156,7 @@ export const zh = {
   'notification.audio.uninitialized': '音频尚未初始化',
   'notification.problems': '这些内容读不出来：',
   'notification.ms': '毫秒',
+  'notification.cardCount': '这个状态有 {count} 个会话',
   'notification.state.question': '等待回答',
   'notification.state.approval': '等待审批',
   'notification.state.plan': '等待审阅计划',
@@ -217,6 +218,7 @@ export const en = {
   'notification.audio.uninitialized': 'audio not initialized yet',
   'notification.problems': 'These cannot be read:',
   'notification.ms': 'ms',
+  'notification.cardCount': '{count} session(s) in this state',
   'notification.state.question': 'Waiting for an answer',
   'notification.state.approval': 'Waiting for approval',
   'notification.state.plan': 'Waiting for a plan review',
@@ -378,11 +380,10 @@ export function StateCard({ t, kind, state, count, defaults, onChange, onAuditio
         'div',
         { className: cn('cardTitle') },
         h('div', { className: cn('cardName') }, t(`notification.state.${kind}`)),
-        h(
-          'div',
-          { className: cn('cardCount') },
-          count === undefined ? '' : `${String(count)}`,
-        ),
+        // Only when there is something to say. A live count is genuinely useful — it is
+        // how a user tells "three sessions are waiting" from "one" — but a column of six
+        // zeroes is noise that makes the one non-zero figure harder to find.
+        count > 0 ? h('div', { className: cn('cardCount') }, t('notification.cardCount', { count })) : null,
       ),
       Check({ t, id: `dsh-notification-${kind}-enabled`, checked: !off, onChange: (value) => { set('enabled', value) }, labelKey: 'notification.enabled' }),
     ),

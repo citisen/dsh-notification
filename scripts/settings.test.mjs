@@ -16,6 +16,7 @@ import test from 'node:test'
 
 import { VOICE_NAMES } from '../src/sound.js'
 import { STATE_KINDS } from '../src/states.js'
+import { unknownFields } from '../src/templates.js'
 import {
   GLOBAL_DEFAULTS,
   GLOBAL_FIELDS,
@@ -271,5 +272,12 @@ test('the shipped cards are configured the way the documentation claims', () => 
   for (const kind of STATE_KINDS) {
     assert.ok(STATE_DEFAULTS[kind].melody.length > 0)
     assert.ok(STATE_DEFAULTS[kind].title.length > 0)
+  }
+  // And every shipped template must use only the documented placeholders. Without this,
+  // every card opens with a warning about its own correct text — a warning that fires on
+  // everything teaches the user to ignore the one that matters.
+  for (const kind of STATE_KINDS) {
+    assert.deepEqual(unknownFields(STATE_DEFAULTS[kind].title), [], `${kind} title placeholders`)
+    assert.deepEqual(unknownFields(STATE_DEFAULTS[kind].body), [], `${kind} body placeholders`)
   }
 })

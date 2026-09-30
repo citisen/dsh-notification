@@ -120,14 +120,15 @@ function installStyles(ctx) {
  * cards print and a revision so an older write cannot overwrite a newer one.
  *
  * `defineStore` returns a registration *handle*, not a live store: `handle.create()`
- * makes the instance, whose own `getSnapshot`, `subscribe` and `actions` are what a
- * non-React caller uses. The **handle** is what the slot registry takes as a store
- * seat, and the renderer synthesizes the selector hook from it. So this returns both
- * — and reading through `getSnapshot`/`actions` rather than through a projection is
- * what keeps the requirement discoverable: a projection would silently depend on
- * `create()` happening to expose the actions at its top level, which it does not.
+ * makes the instance, and the instance is what carries `getSnapshot` and `subscribe`.
+ * **The instance is what the slot's `hooks` seat takes** — the renderer binds its
+ * selector hook to the source it is handed, by calling `getSnapshot` on it. Passing the
+ * handle instead is a mistake with a distinctive symptom: the row registers, the slot
+ * renderer accepts it, and the component throws `getSnapshot is not a function` on its
+ * first render, which the shell reports as `slot entry crashed` — a card that exists in
+ * the ledger and not on the screen.
  *
- * @returns `{ handle, getSnapshot, sync, setCounts }`.
+ * @returns `{ handle, instance, getSnapshot, sync, setCounts }`.
  */
 function createRowStore() {
   const handle = defineStore({
@@ -159,9 +160,13 @@ function createRowStore() {
       },
     },
   })
+  // One instance for the whole plugin, made once: `create()` reads the store's own
+  // source, so calling it twice would give the row and the engine two different stores
+  // — the row rendering one configuration while the engine runs another.
   const instance = handle.create()
   return {
     handle,
+    instance,
     getSnapshot: () => instance.getSnapshot(),
     sync: (section, revision) => {
       instance.actions.sync(section, revision)
@@ -608,7 +613,9 @@ export function apply(ctx) {
         order: 40,
         locale: LOCALE_NAMESPACE,
         inject: () => ({
-          hooks: { notification: store.handle },
+          // The **instance**, not the handle: the renderer binds its selector hook to
+          // whatever source it is given, by calling `getSnapshot` on it.
+          hooks: { notification: store.instance },
           onChange: change,
           onAudition: audition,
           onTest: test,

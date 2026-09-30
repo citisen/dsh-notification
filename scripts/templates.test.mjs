@@ -38,6 +38,11 @@ test('an unknown placeholder is left visible and reported, never silently droppe
   // and nobody reports it as a bug.
   assert.equal(text, 'X — {wat}')
   assert.deepEqual(unknown, ['wat'])
+  // The vocabulary is the documented one, so a real placeholder is never reported and a
+  // typo always is. The regression this pins: the probe context used to be *empty*, which
+  // made every placeholder unknown — so every shipped card warned about `{title}`.
+  assert.deepEqual(unknownFields('{title} {summary} {state} {count} {time}'), [])
+  assert.deepEqual(unknownFields('{title} {titel} {summary}'), ['titel'])
   assert.deepEqual(unknownFields('{a} {b} {a}'), ['a', 'b'])
 })
 

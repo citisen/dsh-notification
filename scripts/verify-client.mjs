@@ -505,17 +505,30 @@ assert.equal(typeof injected.onAudition, 'function')
 assert.equal(typeof injected.onTest, 'function')
 assert.equal(typeof injected.onReset, 'function')
 assert.ok(injected.hooks?.notification !== undefined, 'the row needs its store hook')
+// The store seat is bound by the renderer calling `getSnapshot` on whatever it is given,
+// so an object without one registers successfully, renders nothing, and is reported as
+// `slot entry crashed`. Asserting the *shape* is what turns that into a failing check: the
+// first version of this plugin passed a `defineStore` handle — which has `create` and no
+// `getSnapshot` — and the card was silently absent from the settings page.
+const storeSource = injected.hooks.notification
+assert.equal(typeof storeSource.getSnapshot, 'function', 'the store seat must expose getSnapshot')
+assert.equal(typeof storeSource.subscribe, 'function', 'the store seat must expose subscribe')
+assert.ok(
+  storeSource.getSnapshot() !== undefined,
+  'the store seat must report a snapshot before anything writes to it',
+)
+// And it must be the *same* store the engine reads, or the row would render one
+// configuration while the engine runs another.
+assert.equal(typeof storeSource.actions?.sync, 'function', 'the store seat must be the instance')
 assert.ok(injected.permission !== undefined, 'the row needs the banner permission state')
 
 /** The translator the slot registry would hand the component. */
 const t = (key) => recorded.locale.dictionaries.zh[key] ?? key
 
-// Render the row the way the renderer would: the store *handle* becomes a selector
-// hook, and the injected actions arrive as props. A component that throws here
-// would blank the settings page.
-const storeHandle = injected.hooks.notification
-assert.equal(typeof storeHandle.create, 'function', 'the store seat must be a handle')
-const storeInstance = storeHandle.create()
+// Render the row the way the renderer would: the store source becomes a selector hook,
+// and the injected actions arrive as props. A component that throws here would blank the
+// settings page — which is exactly the failure this section exists to catch.
+const storeInstance = storeSource
 const useNotification = (selector) => selector(storeInstance.getSnapshot())
 react.__reset()
 const tree = slotRow.component({

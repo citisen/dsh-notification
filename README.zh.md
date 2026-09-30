@@ -158,8 +158,23 @@ npm run check:all    # 外加真实地启动一个 profile
 | `verify-host.mjs` | 宿主半边对**真实 schema 库**：补丁行 id 等于设置命名空间、schema 能把出厂默认值原样往返、57 个字段路径全都是 `volatile` —— 那个"设置页能点但永远存不下去"的失败。 |
 | `verify-client.mjs` | **产物 bundle**：信封、只 require 平台单例、两份词典键集一致、样式只用 design token 不用字面色、状态机与引擎跑在产物上，以及 `apply()` 对桩服务、并把设置行真正渲染出来 —— 364 个节点，每个状态一张卡片。 |
 | `verify-profile.mjs` | **真实 loader**：镜像 profile 组装出这一行、启动时没有未激活的插件、并在自己的端口上应答。 |
+| `live-probe.mjs` | **真实浏览器里的真实页面**，通过 DevTools 协议驱动：启动一个 profile、打开界面、打开设置对话框、然后去找那张卡片 —— 遇到 `slot entry crashed`、找不到卡片、或任何未捕获异常都会失败。 |
 
-前三项只需要 Node。第四项需要装了桌面版，没装则干净跳过。
+前三项只需要 Node。后两项需要装了桌面版，没装则干净跳过。
+
+### 为什么会有 live-probe
+
+它是在这个插件出了第一个真实 bug 之后加的，而这个 bug 值得记下来：当时其他四层**全都是通过的**。
+
+插件把一个 `defineStore` 的 **handle** 当成了 slot 的 store seat。handle 身上是 `spec` 和
+`create`；**instance** 身上才是 `getSnapshot` 和 `subscribe`，而渲染器会把选择器 hook 绑到
+你交给它的那个东西上。于是这一行注册成功了、slot 渲染器接受了这次注册、然后组件在第一次渲染时
+抛出 `getSnapshot is not a function`。外壳把它报成
+`slot entry crashed in 'settings.general.item'` —— 一张存在于账本里、却不在屏幕上的卡片，
+也就是用户看到的那句：**插件列表里有它，设置面板里没有**。
+
+这个仓库里每一个桩都按插件*使用* store 的方式去建模了 store，所以它们全都同意这个 bug。
+只有真实页面能给出不同意见 —— 这就是为什么值得留一层需要浏览器的校验。
 
 ## 开发
 
