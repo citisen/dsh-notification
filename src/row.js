@@ -34,7 +34,7 @@
 
 import React from 'react'
 import { STATE_KINDS } from './states.js'
-import { SOUND_SCOPES, STATE_DEFAULTS, resolveSettings } from './settings.js'
+import { NOTIFICATIONS_ENABLED, SOUND_SCOPES, STATE_DEFAULTS, resolveSettings } from './settings.js'
 import { TEMPLATE_FIELDS, unknownFields } from './templates.js'
 import { VOICES, VOICE_NAMES } from './sound.js'
 
@@ -679,8 +679,16 @@ export function NotificationRow({
           ? 'notification.audio.locked'
           : 'notification.audio.uninitialized'
 
-  /** The tabs, in the order they are shown. `states` is the one a user opens for most things. */
-  const TABS = ['states', 'sound', 'banner', 'general']
+  /**
+   * The tabs, in the order they are shown. `states` is the one a user opens for most things.
+   *
+   * The banner tab appears only while the channel is live. A tab whose every control is inert
+   * is worse than an absent one: it invites a user to configure a feature that cannot fire, and
+   * leaves them to work out from the silence that it never will. While the channel is off the
+   * tab is not rendered, and its one rate limit — the repeat window, which is about attention
+   * rather than about banners — moves to the tab where the other timing limits live.
+   */
+  const TABS = NOTIFICATIONS_ENABLED ? ['states', 'sound', 'banner', 'general'] : ['states', 'sound', 'general']
 
   return h(
     'div',
@@ -827,6 +835,24 @@ export function NotificationRow({
               },
               format: (value) => `${String(value)} ${t('notification.ms')}`,
             }),
+            // The repeat limit lives here while the banner channel is off, because it is a
+            // rate limit on the *bell* in that configuration — and it is about the user's
+            // attention rather than about banners, which is why it survives the channel being
+            // turned off at all.
+            NOTIFICATIONS_ENABLED
+              ? null
+              : h(Slider, {
+                  t,
+                  labelKey: 'notification.repeat',
+                  value: settings.repeatMs,
+                  min: 0,
+                  max: 60_000,
+                  step: 500,
+                  onChange: (value) => {
+                    setGlobal('repeatMs', value)
+                  },
+                  format: (value) => `${String(value)} ${t('notification.ms')}`,
+                }),
           ),
           h(
             'div',
@@ -837,7 +863,10 @@ export function NotificationRow({
       : null,
 
     // ── Notifications ───────────────────────────────────────────────────────
-    tab === 'banner'
+    //
+    // Rendered only while the channel is live. See the TABS comment above: a tab of inert
+    // controls invites the user to configure a feature that cannot fire.
+    NOTIFICATIONS_ENABLED && tab === 'banner'
       ? h(
           'div',
           { className: cn('panel'), role: 'tabpanel' },
@@ -869,10 +898,9 @@ export function NotificationRow({
             { className: cn('actions') },
             h('span', { className: cn('note') }, `${t('notification.permission')}: ${t(permissionKey)}`),
           ),
-          // A hint rather than a button. The permission cannot be requested from here —
-          // the platform resolves the ask to `denied` with no prompt, and the ask itself
-          // costs the `default` state — so the useful thing is to say where the switch
-          // actually lives.
+          // A hint rather than a button. The permission cannot be requested from here — the
+          // platform resolves the ask to `denied` with no prompt, and the ask itself costs the
+          // `default` state — so the useful thing is to say where the switch actually lives.
           permission?.permission === 'granted' ? null : h('div', { className: cn('note') }, t('notification.permission.hint')),
         )
       : null,

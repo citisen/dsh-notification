@@ -53,7 +53,7 @@ import { createFailureLog, createSpeechLog, diffStatus, observe, tally } from '.
 import { createPlayer } from './sound.js'
 import { createNotifier } from './system.js'
 import { describePlan, gapElapsed, planEvent } from './engine.js'
-import { resolveSettings, stateGain } from './settings.js'
+import { NOTIFICATIONS_ENABLED, resolveSettings, stateGain } from './settings.js'
 import { STATE_KINDS } from './states.js'
 
 /**
@@ -276,6 +276,9 @@ function installEngine(ctx, options) {
           visibility,
           now: Date.now(),
           lastSpoke: speech,
+          // The one place the hard-coded channel switch is read. Everything downstream takes it
+          // as a fact, so the banner path stays reachable in both states from a test.
+          notificationsEnabled: NOTIFICATIONS_ENABLED,
         }),
       )
 
@@ -579,9 +582,9 @@ export function apply(ctx) {
     const settings = store.getSnapshot().settings
     const permission = notifier.permission()
 
-    // A banner is attempted for this one test even when the state's own channels are off,
-    // so pressing the button on a switched-off card still tells the user something useful
-    // instead of reporting the switch they just looked at.
+    // The card's own switches are treated as on for this one test, so pressing the button on a
+    // state that happens to be switched off still answers a useful question instead of
+    // reporting the switch the user is looking at.
     const plan = planEvent({
       event: {
         kind,
@@ -597,25 +600,25 @@ export function apply(ctx) {
       },
       counts: store.getSnapshot().counts,
       stateLabel: t(`notification.state.${kind}`),
-      // The banner is always planned for a test: whether the *platform* will draw it is
-      // exactly the question being asked, so a permission check here would answer it with
-      // the value rather than with the attempt.
-      permission: { ...permission, permission: 'granted' },
+      permission,
       visibility: readVisibility(view),
       now: Date.now(),
+      notificationsEnabled: NOTIFICATIONS_ENABLED,
     })
 
     let line
-    if (plan.banner === undefined) {
-      line = `${t('notification.testResult.skipped')} · ${describePlan(plan, t)}`
-    } else {
+    if (plan.banner !== undefined) {
       const outcome = notifier.show(plan.banner)
       line =
         outcome.shown === true
           ? `${t('notification.testResult.shown')} · “${plan.banner.title}”`
-          : outcome.reason === 'unsupported'
-            ? t('notification.testResult.unsupported')
-            : t('notification.testResult.threw')
+          : t('notification.testResult.threw')
+    } else if (plan.sound !== undefined) {
+      // The banner channel is off, so this reports the sound — which is now the whole of what
+      // the plugin does, and therefore exactly what a test button should describe.
+      line = describePlan(plan, t)
+    } else {
+      line = `${t('notification.testResult.skipped')} · ${describePlan(plan, t)}`
     }
     // Kept in the store so the row re-renders with it, and so it survives the panel being
     // closed and reopened.

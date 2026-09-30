@@ -14,12 +14,13 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { VOICE_NAMES } from '../src/sound.js'
+import { VOICE_NAMES, readMelody } from '../src/sound.js'
 import { STATE_KINDS } from '../src/states.js'
 import { unknownFields } from '../src/templates.js'
 import {
   GLOBAL_DEFAULTS,
   GLOBAL_FIELDS,
+  NOTIFICATIONS_ENABLED,
   SETTINGS_VERSION,
   SOUND_SCOPES,
   STATE_DEFAULTS,
@@ -177,9 +178,22 @@ test('a card with both channels off is switched off, not redirected', () => {
 
 test('turning the bell channel off leaves the banner channel working', () => {
   const settings = resolveSettings({ soundScope: 'off' })
-  // `admit` still allows the event: it is a notification, not a sound.
-  assert.equal(admit('question', settings, {}).allowed, true)
+  // `admit` still allows the event: it is a notification, not a sound. Whether the banner
+  // channel is live is passed as a fact, because that is a separate question — and the one that
+  // decides this answer.
+  assert.equal(admit('question', settings, { notificationsEnabled: true }).allowed, true)
   assert.equal(soundAllowed(settings, { visible: false, focused: false }), false)
+})
+
+test('the two channels are switched off independently, and a card with neither is off', () => {
+  // The mirror of the test above, and the reason `notificationsEnabled` is a fact rather than a
+  // module constant read inside `admit`: with both channels dark there is nothing this state
+  // could do, so it is switched off rather than admitted and then silent — a state the plugin
+  // would report as on while doing nothing about it.
+  const bellsOff = resolveSettings({ soundScope: 'off' })
+  assert.equal(admit('question', bellsOff, { notificationsEnabled: false }).reason, 'no-channel')
+  // A card that still has its bell is unaffected by the banner channel being dark.
+  assert.equal(admit('question', resolveSettings({}), { notificationsEnabled: false }).allowed, true)
 })
 
 test('the plugin says nothing about the session the user is already reading', () => {
@@ -280,4 +294,66 @@ test('the shipped cards are configured the way the documentation claims', () => 
     assert.deepEqual(unknownFields(STATE_DEFAULTS[kind].title), [], `${kind} title placeholders`)
     assert.deepEqual(unknownFields(STATE_DEFAULTS[kind].body), [], `${kind} body placeholders`)
   }
+})
+
+test('every shipped volume is full, on the cards and on the master', () => {
+  // A default below 1 means a user who turned the master up still hears something quieter than
+  // they asked for, for a reason nothing on screen explains — and the two levels multiply, so one
+  // of them being 0.8 makes the shipped configuration 80%, not the 100% it claims.
+  assert.equal(GLOBAL_DEFAULTS.masterVolume, 1, 'the master ships at full')
+  for (const kind of STATE_KINDS) {
+    assert.equal(STATE_DEFAULTS[kind].volume, 1, `${kind} ships at full`)
+  }
+  // And the resolved gain is therefore exactly 1 for every state, which is the property the
+  // interface's percentages are claiming.
+  const settings = resolveSettings(undefined)
+  for (const kind of STATE_KINDS) {
+    assert.equal(stateGain(settings, kind), 1, `${kind} must resolve to full gain`)
+  }
+})
+
+test('the failed and running phrases are the classical quotations they claim to be', () => {
+  // These two are the states the plugin's predecessor did not have, so their phrases are choices
+  // rather than carries — and a musical choice is worth pinning, because "sounds wrong" is not a
+  // failing test while a changed note is.
+  //
+  // failed — the *Dies irae* plainchant, opening descent: A G F E D C.
+  assert.equal(STATE_DEFAULTS.failed.melody, 'A4:200ms G4:200ms F4:200ms E4:200ms D4:200ms C4:520ms')
+  // running — Mozart, Eine kleine Nachtmusik K. 525, the opening G-major arpeggio.
+  assert.equal(STATE_DEFAULTS.running.melody, 'G4:130ms D5:130ms G5:130ms B5:130ms D6:420ms')
+
+  // The failure phrase descends, which is the whole of why it was chosen: the intervals are all
+  // downward, and it is the only shipped phrase that ends unresolved.
+  const failed = readMelody(STATE_DEFAULTS.failed.melody)
+  assert.deepEqual(failed.problems, [])
+  const failedPitches = failed.notes.map((note) => note.frequency)
+  for (let index = 1; index < failedPitches.length; index += 1) {
+    assert.ok(
+      failedPitches[index] < failedPitches[index - 1],
+      'the Dies irae opening must descend at every step',
+    )
+  }
+
+  // The start phrase ascends, which is what it reports: something is beginning.
+  const running = readMelody(STATE_DEFAULTS.running.melody)
+  assert.deepEqual(running.problems, [])
+  const runningPitches = running.notes.map((note) => note.frequency)
+  for (let index = 1; index < runningPitches.length; index += 1) {
+    assert.ok(
+      runningPitches[index] > runningPitches[index - 1],
+      'the Eine kleine Nachtmusik arpeggio must ascend at every step',
+    )
+  }
+})
+
+test('the notification channel ships switched off', () => {
+  // The hard-coded switch, asserted where it is declared rather than only where it is used.
+  assert.equal(NOTIFICATIONS_ENABLED, false)
+  // The per-state banner preferences are still recorded, so turning the channel back on restores
+  // the shipped intent instead of a blank configuration — which is the whole reason the field and
+  // its four `true`s were kept rather than deleted.
+  assert.equal(STATE_DEFAULTS.question.notification, true)
+  assert.equal(STATE_DEFAULTS.approval.notification, true)
+  assert.equal(STATE_DEFAULTS.plan.notification, true)
+  assert.equal(STATE_DEFAULTS.failed.notification, true)
 })

@@ -275,6 +275,14 @@ const granted = { supported: true, permission: 'granted', canAsk: false }
 const hidden = { visible: false, focused: false }
 const watching = { visible: true, focused: true }
 
+// Two facts about the *shipped* configuration that shape every assertion below, read from the
+// bundle rather than restated: the banner channel is switched off in code, and a banner path is
+// therefore only reachable when it is passed as live. Asserting the shipped state first means a
+// future change to the switch fails here rather than quietly rewriting what these tests cover.
+assert.equal(exports_.NOTIFICATIONS_ENABLED, false, 'the banner channel ships switched off')
+const live = { notificationsEnabled: true }
+const dark = { notificationsEnabled: false }
+
 const plan = exports_.planEvent({
   event: events[0],
   settings: shipped,
@@ -283,11 +291,29 @@ const plan = exports_.planEvent({
   permission: granted,
   visibility: hidden,
   now: 1000,
+  ...live,
 })
 assert.equal(plan.admit, true)
 assert.equal(plan.banner.title, 'Deploy is asking')
 assert.equal(plan.banner.tag, 'question:a')
 assert.notEqual(plan.sound, undefined)
+
+// With the channel switched off — which is how it ships — the same event produces the same bell
+// and no banner at all. This is the assertion that the hard-coded switch actually switches
+// something off, rather than being a comment.
+const shippedPlan = exports_.planEvent({
+  event: events[0],
+  settings: shipped,
+  counts: { question: 1 },
+  stateLabel: 'Waiting for an answer',
+  permission: granted,
+  visibility: hidden,
+  now: 1000,
+  ...dark,
+})
+assert.equal(shippedPlan.admit, true)
+assert.equal(shippedPlan.banner, undefined, 'the shipped configuration must plan no banner')
+assert.notEqual(shippedPlan.sound, undefined, 'and must still ring')
 
 // The user is reading the interface: no chime, but the banner still earns its place
 // because the session it names is not the one on screen.
@@ -297,6 +323,7 @@ const whileWatching = exports_.planEvent({
   permission: granted,
   visibility: watching,
   now: 1000,
+  ...live,
 })
 assert.equal(whileWatching.sound, undefined)
 assert.notEqual(whileWatching.banner, undefined)
@@ -309,6 +336,7 @@ assert.equal(
     permission: granted,
     visibility: watching,
     now: 1000,
+    ...live,
   }).admit,
   false,
 )
@@ -323,6 +351,7 @@ const refused = exports_.planEvent({
   permission: { supported: true, permission: 'denied', canAsk: false },
   visibility: hidden,
   now: 1000,
+  ...live,
 })
 assert.notEqual(refused.banner, undefined, 'a denied permission must not suppress the banner')
 assert.equal(refused.suppressed, undefined)
@@ -333,6 +362,7 @@ const noApi = exports_.planEvent({
   permission: { supported: false, permission: 'unsupported' },
   visibility: hidden,
   now: 1000,
+  ...live,
 })
 assert.equal(noApi.banner, undefined, 'no notification API means nothing to try with')
 assert.equal(noApi.suppressed, 'unsupported')
@@ -609,8 +639,27 @@ function collect(node, out = []) {
 const all = collect(rendered[0], [])
 const tabButtons = all.filter((node) => node.props?.role === 'tab' && node.props?.['aria-selected'] !== undefined)
 const topTabs = tabButtons.filter((node) => String(node.props.className).includes('dsh-notification-tab'))
-assert.equal(topTabs.length, 4, 'the row must render four tabs')
+const tabNames = topTabs.map((node) => firstString(node.children))
 assert.equal(topTabs.filter((node) => node.props['aria-selected'] === 'true').length, 1, 'exactly one tab is active')
+
+// With the banner channel switched off — how it ships — there is **no** Notifications tab. A tab of
+// wholly inert controls is worse than an absent one: it invites the user to configure a feature that
+// cannot fire, and leaves them to infer that from the silence.
+//
+// The expected labels are read from the same dictionary the translator handed to the row uses, so
+// this asserts the tabs' *order and membership* rather than restating their copy — restating it
+// would be a second translation, free to agree with itself and disagree with the interface.
+const label = (key) => recorded.locale.dictionaries.zh[key]
+const expectedTabs = ['states', 'sound', 'banner', 'general']
+  .filter((name) => name !== 'banner' || exports_.NOTIFICATIONS_ENABLED)
+  .map((name) => label(`notification.tab.${name}`))
+assert.deepEqual(tabNames, expectedTabs)
+if (!exports_.NOTIFICATIONS_ENABLED) {
+  assert.ok(
+    !tabNames.includes(label('notification.tab.banner')),
+    'a switched-off channel must not offer a tab to configure it',
+  )
+}
 
 // The state switcher: six pills, each carrying its own state, and exactly one card rendered —
 // the assertion that the States tab shows one state at a time rather than six stacked forms.
@@ -687,7 +736,7 @@ for (const tab of topTabs) {
   )
   visited.push(label)
 }
-assert.equal(visited.length, 3, 'every tab except the default one must be reachable by clicking')
+assert.equal(visited.length, topTabs.length - 1, 'every tab except the default one must be reachable by clicking')
 
 // The controls write through the form, fenced by the revision the store holds.
 storeInstance.actions.setCounts({ question: 1 })

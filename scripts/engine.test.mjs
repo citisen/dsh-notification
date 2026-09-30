@@ -23,7 +23,7 @@ import {
   gapElapsed,
   planEvent,
 } from '../src/engine.js'
-import { STATE_DEFAULTS, resolveSettings } from '../src/settings.js'
+import { GLOBAL_DEFAULTS, STATE_DEFAULTS, resolveSettings } from '../src/settings.js'
 
 /** A granted permission state. */
 const GRANTED = { supported: true, permission: 'granted', canAsk: false }
@@ -53,7 +53,14 @@ function event(overrides = {}) {
 
 /**
  * Plan one event against resolved settings.
- * @param overrides - `{ event, settings, permission, visibility, now, lastSpoke, counts }`.
+ *
+ * The banner channel is turned **on** here, because these tests are about what the engine does
+ * when it is live, and the channel ships switched off while it cannot work. Its shipped state
+ * has its own test — and the switch being a parameter rather than a module constant read inside
+ * the engine is exactly what makes both states reachable from a test.
+ *
+ * @param overrides - `{ event, settings, permission, visibility, now, lastSpoke, counts,
+ *   notificationsEnabled }`.
  * @returns the plan.
  */
 function planFor(overrides = {}) {
@@ -66,8 +73,48 @@ function planFor(overrides = {}) {
     visibility: overrides.visibility ?? HIDDEN,
     now: overrides.now ?? 100_000,
     lastSpoke: overrides.lastSpoke,
+    notificationsEnabled: overrides.notificationsEnabled ?? true,
   })
 }
+
+test('with the banner channel switched off, no plan ever carries a banner', () => {
+  // The shipped configuration, and the assertion that the hard-coded switch actually switches
+  // something off — without it the channel would be "disabled" in a comment only.
+  //
+  // Every card is forced *on*, because the point is what the engine does with the switch rather
+  // than which cards happen to ship enabled: `running` ships disabled, so a naive version of this
+  // test would have passed for the wrong reason on exactly that state.
+  const forced = resolveSettings({
+    states: Object.fromEntries(
+      ['question', 'approval', 'plan', 'failed', 'done', 'running'].map((kind) => [kind, { enabled: true }]),
+    ),
+  })
+  for (const kind of ['question', 'approval', 'plan', 'failed', 'done', 'running']) {
+    const plan = planFor({ event: event({ kind }), settings: forced, notificationsEnabled: false })
+    assert.equal(plan.banner, undefined, `${kind} must plan no banner while the channel is off`)
+
+    // The bell is untouched by the banner switch — and the expectation of a sound is derived from
+    // the card rather than asserted for every kind, because a shipped card may also have its own
+    // bell switched off (`running` does), and a hardcoded list would report that as a defect.
+    const rings = forced.states[kind].sound === true && forced.soundScope !== 'off'
+    assert.equal(
+      plan.sound !== undefined,
+      rings,
+      `${kind} ${rings ? 'must still ring' : 'has its own bell off, so it must stay silent'}`,
+    )
+  }
+})
+
+test('with the banner channel switched off, a card that only wanted a banner is switched off too', () => {
+  // Not "admitted and then silent", which would report the state as on and do nothing about it.
+  const onlyBanner = resolveSettings({
+    states: { done: { sound: false, notification: true, enabled: true } },
+  })
+  const plan = planFor({ event: event({ kind: 'done' }), settings: onlyBanner, notificationsEnabled: false })
+  assert.deepEqual({ admit: plan.admit, reason: plan.reason }, { admit: false, reason: 'no-channel' })
+  // The same card admits normally the moment the channel is back.
+  assert.equal(planFor({ event: event({ kind: 'done' }), settings: onlyBanner }).admit, true)
+})
 
 test('a shipped card with a granted permission produces both channels', () => {
   const plan = planFor()
@@ -75,7 +122,11 @@ test('a shipped card with a granted permission produces both channels', () => {
   assert.equal(plan.reason, 'allowed')
   assert.equal(plan.sound.kind, 'question')
   assert.equal(plan.sound.voice, STATE_DEFAULTS.question.voice)
-  assert.ok(Math.abs(plan.sound.gain - STATE_DEFAULTS.question.volume * 0.8) < 1e-9)
+  // Derived rather than hardcoded: the two levels multiply, and both ship at full, so a literal
+  // here would be a second opinion about a default the settings module already states.
+  assert.ok(
+    Math.abs(plan.sound.gain - STATE_DEFAULTS.question.volume * GLOBAL_DEFAULTS.masterVolume) < 1e-9,
+  )
   assert.equal(plan.banner.title, 'Deploy is asking')
   assert.equal(plan.banner.body, 'Which file?')
   assert.equal(plan.banner.tag, 'question:a')

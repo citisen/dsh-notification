@@ -67,6 +67,9 @@ export function planEvent(input) {
       input.visibility !== undefined && input.visibility.focused === true && input.visibility.visible === true,
     now,
     lastSpokenAt,
+    // Whether the banner channel is live at all. Passed through so the two states are both
+    // reachable from a test rather than only the one that ships.
+    notificationsEnabled: input.notificationsEnabled === true,
   })
 
   if (verdict.allowed !== true) {
@@ -90,18 +93,28 @@ export function planEvent(input) {
       ? { melody: state.melody, voice, gain, kind: event.kind }
       : undefined
 
-  // The banner. `permission` is read at plan time rather than at show time so the
-  // plan can say *why* there is no banner, which is the difference between a card
-  // that says "refused" and one that silently does nothing.
-  const wantsBanner = state.notification === true && settings.desktopNotifications !== false
+  // The banner.
+  //
+  // The first gate is whether the channel is enabled *at all*, passed in rather than read from
+  // a module constant — and that is a design decision, not plumbing. Hard-coding the check here
+  // would make the whole banner path untestable in the one state it currently ships in, and the
+  // point of keeping the channel alive while it is switched off is that turning it back on is a
+  // one-line change rather than a rewrite. As a parameter, both states are exercised by the
+  // suite on every run.
+  //
+  // The state's own preference and the global switch are still read, so a card keeps recording
+  // what the user wants — which is what makes re-enabling restore their intent rather than a
+  // blank configuration.
+  //
+  // Deliberately **not** gated on the permission, which is a correction this plugin needed: in
+  // the desktop shell `Notification.permission` reads `denied` while `new Notification(...)`
+  // still constructs, so gating on it withheld banners the platform would have shown, silently.
+  // The only environment gate left is whether there is an API to try with at all.
+  const wantsBanner =
+    input.notificationsEnabled === true &&
+    state.notification === true &&
+    settings.desktopNotifications !== false
   const banner =
-    // Planned unless the environment has no notification API at all — deliberately **not**
-    // gated on the permission, and that is a correction this plugin needed. In the desktop
-    // application `Notification.permission` reads `denied` while `new Notification(...)`
-    // still constructs, because the shell installs no permission request handler; gating on
-    // the permission therefore withheld banners the platform would have shown, silently.
-    // Whether a banner is *drawn* is not knowable from here in any case, so the plan asks
-    // the only question it can answer: is there something to try with.
     wantsBanner && input.permission?.supported !== false
       ? buildBanner(event, state, {
           counts: input.counts ?? {},

@@ -17,14 +17,21 @@ actually has: **its speakers**, and **the operating system's notification centre
 knobs, and then **one card per state**, each with its own switch, its own bell, its own
 volume, its own timbre, its own melody, and its own notification text.
 
-| State | When | Ships |
-| --- | --- | --- |
-| **Waiting for an answer** | the agent asked a question (`ask_user`) | bell + banner |
-| **Waiting for approval** | the agent asked for permission | bell + banner |
-| **Waiting for a plan review** | the agent proposed a plan | bell + banner |
-| **Ended with an error** | the session's agent reported an error | bell + banner |
-| **Finished** | a turn ended and you have not looked at it | bell only |
-| **Started** | a turn began | **switched off** |
+| State | When | Ring | Melody |
+| --- | --- | --- | --- |
+| **Waiting for an answer** | the agent asked a question (`ask_user`) | yes | Beethoven, Symphony No. 5 — the fate motif |
+| **Waiting for approval** | the agent asked for permission | yes | Bach, Toccata and Fugue in D minor BWV 565 |
+| **Waiting for a plan review** | the agent proposed a plan | yes | an ascending C-major arpeggio |
+| **Ended with an error** | the session's agent reported an error | yes | the *Dies irae* plainchant, opening descent |
+| **Finished** | a turn ended and you have not looked at it | yes | Beethoven, Symphony No. 9 — "Ode to Joy" |
+| **Started** | a turn began | **card switched off** | Mozart, Eine kleine Nachtmusik K. 525 |
+
+Every phrase is a public-domain classical quotation chosen for what its state *means* — a knock at
+the door for a question, a grave descent for a decision, the funeral chant for a failure, an
+ascending arpeggio for something beginning. `failed` and `running` are the two the tabbed
+predecessor did not have, so those are new; the other four are kept note for note, because a user
+who has lived with those sounds should not have them change under an upgrade. Every level ships at
+**100%**, on the cards and on the master.
 
 The last one ships off on purpose. A turn *starting* is not something to interrupt anyone
 for — but it is still a state, and a plugin with no way to say so would be deciding a
@@ -72,70 +79,60 @@ cmd /c mklink /J node_modules\@citisen\dsh-notification D:\path\to\dsh-notificat
 The row id and the client half's `NOTIFICATION_NAMESPACE` must be the same string,
 `notification` — that is how the settings model finds the configuration.
 
-## System notifications, and the permission trap
+## System notifications are switched off, in code
 
-The desktop application is an Electron shell that installs **no permission request
-handler**. That single fact produces a behaviour that is worth writing down, because the
-plugin got it wrong first and the symptom was "the test button does nothing":
+`src/settings.js` carries one constant:
 
-```
-Notification.permission            = 'default'
-→ the plugin calls requestPermission()
-Notification.permission            = 'denied'     ← and no prompt was ever shown
+```js
+export const NOTIFICATIONS_ENABLED = false
 ```
 
-Electron has nothing to prompt *with*, so the ask resolves immediately to `denied` — and it
-consumes the `default` on the way. A plugin that asks therefore destroys the very permission
-it was trying to obtain. Worse, the permission then reads `denied`, and a plugin that gates
-its banner on that value never even attempts one.
+With it false, no banner is ever planned, the tab that would configure one is not rendered, and the
+plugin is a bell and nothing else. The channel is **kept rather than deleted** so that turning it
+back on is a one-line change, and everything it needs — the templates, the title and body fields,
+the per-state preferences, the notifier and its whole test suite — stays working and tested.
+`engine.js` takes the switch as a *parameter* rather than reading the constant, which is what keeps
+both states reachable from the suite on every run instead of only the one that ships.
 
-So this plugin does neither:
+### Why, measured on this platform
 
-- **it never asks.** The card says where the switch actually lives — Windows Settings →
-  System → Notifications — because a button that can only make things worse is not a button.
-- **it never gates on the permission.** Measured: `new Notification(...)` constructs
-  successfully even while the permission reads `denied`. The only thing that suppresses a
-  banner here is an environment with no notification API at all. Whether the operating system
-  then *draws* it is not knowable from a page, so the plugin attempts it and reports what it
-  can see.
+- The desktop shell installs **no permission request handler**, so
+  `Notification.requestPermission()` resolves immediately to `denied` with no prompt — and it
+  *consumes* the `default` on the way. A plugin that asks destroys the very permission it is trying
+  to obtain. This plugin shipped that bug: its test button turned a `default` into a `denied`.
+- `Notification.permission` then reads `denied` while `new Notification(...)` **still constructs**.
+  From inside the page there is no way to tell a banner that was shown from one the operating system
+  dropped: the API reports success either way.
+- The shell's own notifications are raised in the **main process** — its mandatory update prompt
+  calls Electron's `Notification` there, not the renderer's Web API.
 
-That is why the card prints a line under itself after a test:
-
-| It says | It means |
-| --- | --- |
-| `sent · "…"` | the platform accepted the banner. If you saw nothing, the OS suppressed it — focus assist, or notifications for this app are off |
-| `the system refused the notification` | the constructor threw; this environment will not show banners from here |
-| `this environment has no system notifications` | there is no `Notification` API at all |
-
-A banner is also silent (`silent: true`), because the plugin makes its own sound at its own
-configured volume and a system chime on top of it would make that volume a lie.
+A channel whose success cannot be observed, and whose failure is indistinguishable from success, is
+not a feature. Turning it on properly needs a host-side bridge to the main process, which the shell
+would have to expose — a client plugin cannot reach Electron. That is a change to the application,
+not to this bundle.
 
 ## Settings
 
-The row is **four tabs**, and each is a question rather than a category:
+The row is **three tabs**, each a question rather than a category:
 
 | Tab | Holds |
 | --- | --- |
 | **States** | a switcher over the six states, and the selected state's card |
-| **Sound** | master volume, when the bell may play, the minimum gap between sounds, the audio state |
-| **Notifications** | the banner channel, the repeat limit, the platform permission |
+| **Sound** | master volume, when the bell may play, the minimum gap between sounds, the repeat limit, the audio state |
 | **Other** | the two quiet rules, and the reset |
 
 Two decisions inside that are worth stating, because both were complaints first:
 
-- **The States tab shows one state at a time.** Six cards stacked is roughly sixty controls,
-  and the height was not the real problem — the *shape* was: the thing the user came to change
-  was somewhere in a list with nothing to say where. The switcher carries each state's live
-  session count, so the summary the six cards used to provide is still legible without opening
-  any of them, and a state that is switched off is dimmed in the switcher instead of by its own
-  card.
-- **A card renders a channel's controls only while that channel is on.** The volume, timbre and
-  melody belong to the bell; the two template fields belong to the banner. Showing them while
-  their switch is off asks the user to configure something that cannot happen, and buries the
-  switch that would fix it.
+- **The States tab shows one state at a time.** Six cards stacked is roughly sixty controls, and the
+  height was not the real problem — the *shape* was: the thing the user came to change was somewhere
+  in a list with nothing to say where. The switcher carries each state's live session count, so the
+  summary the six cards used to provide is still legible without opening any of them, and a state
+  that is switched off is dimmed in the switcher instead of by its own card.
+- **A card renders a channel's controls only while that channel is on.** With the banner channel
+  switched off that means the volume, timbre and melody fields appear when the bell is on, and
+  nothing else does.
 
 Measured in the live page, the States panel is **17 controls instead of 63**.
-
 ### The melody
 
 ```
@@ -312,14 +309,13 @@ documentation, because the shapes differ between releases:
 
 ## Known limitations
 
-- **A notification is fire-and-forget.** Nothing can report whether the operating system
-  actually drew the banner, so the plugin reports what it can know: whether the constructor
-  threw, and whether the permission is granted. The card says "refused", never "sent".
-- **The button that asks for permission is the card's test button.** A permission prompt
-  with no context is worse than one behind a control that says what it is for.
-- **A banner click raises the window and tries to select the session**, by clicking the
-  row's own element. The selector is a best effort against markup this plugin does not own;
-  a release that renames the attribute costs the navigation, not the notification.
+- **There are no system notifications.** See above: the channel is switched off in code because
+  the platform cannot show a renderer banner and cannot report whether it did. The bell is the
+  whole of the plugin today.
+- **A banner click would raise the window and try to select the session**, by clicking the row's
+  own element. The selector is a best effort against markup this plugin does not own, so a release
+  that renames the attribute would cost the navigation rather than the notification. Untested while
+  the channel is off.
 - **`finished` is not reported for the session on screen.** The controller suppresses its
   own unread flag for the main view, so a user who tests this feature by watching the
   session they just ran will not see it fire — which is also the case a notification exists

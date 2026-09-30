@@ -20,6 +20,36 @@ import { DEFAULT_VOICE, VOICE_NAMES } from './sound.js'
 import { STATE_KINDS } from './states.js'
 
 /**
+ * Whether the system notification channel is live.
+ *
+ * **Off, in code, deliberately.** The channel is kept rather than deleted so it can be turned
+ * back on in one place if the platform ever grows a way to make it work — and it is a constant
+ * rather than a setting so that it cannot be half-enabled from the interface while it does not
+ * work.
+ *
+ * Why it is off, measured rather than assumed, in the desktop shell:
+ *
+ * - the shell installs **no permission request handler**, so `Notification.requestPermission()`
+ *   resolves immediately to `denied` with no prompt and *consumes* the `default` — a plugin that
+ *   asks destroys the very permission it is trying to obtain;
+ * - `Notification.permission` then reads `denied` while `new Notification(...)` still
+ *   *constructs successfully*, so from inside the page the plugin cannot tell whether a banner
+ *   was shown or whether the operating system dropped it;
+ * - and the shell's own notifications are raised in the **main process** — its mandatory update
+ *   prompt calls Electron's `Notification` there, not the renderer's Web API.
+ *
+ * A channel whose success cannot be observed and whose failure is indistinguishable from
+ * success is not a feature. Shipping it produced a test button that reported "sent" and showed
+ * nothing.
+ *
+ * Turning it on properly needs a host-side bridge to the main process: the shell has to expose
+ * one, because a client plugin cannot reach Electron. That is a change to the application, not
+ * to this bundle — and everything the channel needs is below, kept working and tested, so that
+ * bridging it is the only remaining step.
+ */
+export const NOTIFICATIONS_ENABLED = false
+
+/**
  * When a sound is allowed to be audible at all.
  *
  * `background` is the shipped value and the reasoning is the same one the tabbed
@@ -33,26 +63,48 @@ export const SOUND_SCOPES = ['off', 'background', 'always']
 /**
  * The per-state defaults.
  *
- * The melodies are the four public-domain phrases the previous plugin shipped,
- * kept note for note, plus a fifth for the failure state. That is not inertia:
- * a user who has lived with this plugin's sounds for months should not have them
- * change under an upgrade, and the phrases were chosen for what their state means
- * — a knock at the door for a question, a grave descent for a decision, a quiet
- * resolution for completion. The failure phrase is new, and it is deliberately
- * the only one that goes *down* and ends unresolved, because that is what it is
- * reporting.
+ * ## The melodies
  *
- * `notification` ships on for the three states that mean "a person must act", and
- * off for `done` and `running`. The reasoning is the feature's own: a system
- * banner is an interruption with a claim on the whole desktop, so it belongs to
- * the states where the session genuinely cannot proceed without the user. A card
- * can always turn it on for the others.
+ * Every phrase is a public-domain classical quotation, chosen for what its state means rather
+ * than for how it sounds in isolation, and each is short enough to be an alert rather than a
+ * performance:
+ *
+ * - **question** — Beethoven, Symphony No. 5 op. 67, the opening motif. Beethoven called it
+ *   fate knocking at the door, which is exactly what a question is: someone outside, waiting.
+ * - **approval** — Bach, Toccata and Fugue in D minor BWV 565, the opening descent. Grave and
+ *   downward: this is not a call, it is a decision that has to be made.
+ * - **plan** — an ascending C-major arpeggio, for something put in front of you to read.
+ * - **failed** — the *Dies irae*, the 13th-century plainchant sequence, quoted in its opening
+ *   descent. The most recognisable funeral melody in Western music, and the one phrase here
+ *   that ends unresolved.
+ * - **done** — Beethoven, Symphony No. 9, the "Ode to Joy" theme, low and quiet: closure.
+ * - **running** — Mozart, Eine kleine Nachtmusik K. 525, the opening arpeggio. Bright, upward
+ *   and *beginning*, which is what it reports.
+ *
+ * The four phrases that were already here are kept note for note from the previous plugin in
+ * this family, because a user who has lived with those sounds should not have them change under
+ * an upgrade. `failed` and `running` were the two that plugin did not have — its failure state
+ * did not exist and its running state made no sound — so both are new, and both were chosen
+ * under the rule above.
+ *
+ * ## The volumes
+ *
+ * All at full, deliberately. These are levels a card multiplies by the master volume, so a
+ * default below 1 means a user who has turned the master up still hears something quieter than
+ * they asked for, for no reason they can see. What a user actually wants quieter, they turn
+ * down on the card that annoys them.
+ *
+ * ## The banner switches
+ *
+ * Retained and correct, but inert while {@link NOTIFICATIONS_ENABLED} is false: a state that
+ * wants a banner still records that preference, so turning the channel back on restores the
+ * shipped intent rather than a blank configuration.
  */
 export const STATE_DEFAULTS = {
   question: {
     enabled: true,
     sound: true,
-    volume: 0.7,
+    volume: 1,
     voice: 'bell',
     melody: 'G4:170ms G4:170ms G4:170ms Eb4:680ms',
     notification: true,
@@ -62,7 +114,7 @@ export const STATE_DEFAULTS = {
   approval: {
     enabled: true,
     sound: true,
-    volume: 0.6,
+    volume: 1,
     voice: 'bell',
     melody: 'A5:350ms G5:95ms F5:95ms E5:95ms D5:95ms C#5:95ms D5:500ms',
     notification: true,
@@ -72,7 +124,7 @@ export const STATE_DEFAULTS = {
   plan: {
     enabled: true,
     sound: true,
-    volume: 0.6,
+    volume: 1,
     voice: 'marimba',
     melody: 'C5:120ms E5:120ms G5:120ms C6:420ms',
     notification: true,
@@ -82,9 +134,11 @@ export const STATE_DEFAULTS = {
   failed: {
     enabled: true,
     sound: true,
-    volume: 0.5,
-    voice: 'wood',
-    melody: 'A4:160ms F4:160ms D4:420ms',
+    volume: 1,
+    // A bell for the *Dies irae*: the chant is a bell anyway, and the voice's long inharmonic
+    // tail is what makes six descending notes read as one solemn phrase rather than six blips.
+    voice: 'bell',
+    melody: 'A4:200ms G4:200ms F4:200ms E4:200ms D4:200ms C4:520ms',
     notification: true,
     title: '{title} failed',
     body: 'The turn ended with an error.',
@@ -92,7 +146,7 @@ export const STATE_DEFAULTS = {
   done: {
     enabled: true,
     sound: true,
-    volume: 0.35,
+    volume: 1,
     voice: 'marimba',
     melody: 'E4:230ms E4:230ms F4:230ms G4:230ms G4:230ms F4:230ms E4:230ms D4:460ms',
     notification: false,
@@ -100,16 +154,17 @@ export const STATE_DEFAULTS = {
     body: 'The turn is complete.',
   },
   running: {
-    // The one card that ships switched off, and the reason the card exists at
-    // all: a turn *starting* is not something to interrupt anyone for, so the
-    // shipped answer is no. A user who wants feedback that work began turns it
-    // on, and that is a decision the card can express rather than a policy the
-    // engine has to guess.
+    // The one card that ships switched off, and the reason the card exists at all: a turn
+    // *starting* is not something to interrupt anyone for, so the shipped answer is no. A user
+    // who wants feedback that work began turns it on, and that is a decision the card can
+    // express rather than a policy the engine has to guess.
     enabled: false,
     sound: false,
-    volume: 0.3,
-    voice: 'pluck',
-    melody: 'C5:90ms G5:140ms',
+    volume: 1,
+    // A marimba rather than a bell or a sawtooth: a rising arpeggio wants a percussive attack
+    // and a short decay, which is exactly the wooden bar.
+    voice: 'marimba',
+    melody: 'G4:130ms D5:130ms G5:130ms B5:130ms D6:420ms',
     notification: false,
     title: '{title} started',
     body: 'A turn is running.',
@@ -127,7 +182,10 @@ export const STATE_DEFAULTS = {
  */
 export const GLOBAL_DEFAULTS = {
   enabled: true,
-  masterVolume: 0.8,
+  // Full, like every state's own level. The two multiply, so a master below 1 would mean a fresh
+  // install does not actually play at the volume its cards claim — and the knob exists for a user
+  // who wants things quieter than the card they are configuring, not for a default nobody chose.
+  masterVolume: 1,
   soundScope: 'background',
   minGapMs: 1500,
   skipFocusedSession: true,
@@ -288,7 +346,7 @@ export function defaultSection() {
  *
  * @param kind - the state the event is about.
  * @param settings - resolved settings.
- * @param facts - `{ isMain, phase, now, lastSpokenAt, hasSound, hasNotification }`.
+ * @param facts - `{ isMain, phase, now, lastSpokenAt, notificationsEnabled }`.
  * @returns `{ allowed, reason }`: whether anything should happen, and why not.
  */
 export function admit(kind, settings, facts) {
@@ -296,8 +354,16 @@ export function admit(kind, settings, facts) {
   if (settings?.enabled !== true) return { allowed: false, reason: 'master-off' }
   if (state === undefined) return { allowed: false, reason: 'unknown-state' }
   if (state.enabled !== true) return { allowed: false, reason: 'card-off' }
+  // "Has a channel" means a channel that can *do* something, not one that has been asked for.
+  // The difference only shows while the banner channel is switched off in code, and it is why
+  // the switch arrives as a fact rather than as a module constant: a card whose bell is dark and
+  // whose banner preference is on would otherwise be admitted and then produce neither a sound
+  // nor a banner — a state the plugin reports as on and does nothing about, which is the worst
+  // available way to be switched off. Reading the constant here would also make the two cases
+  // indistinguishable in the tests.
   const wantsSound = state.sound === true && settings.soundScope !== 'off'
-  const wantsNotification = state.notification === true && settings.desktopNotifications !== false
+  const wantsNotification =
+    facts?.notificationsEnabled === true && state.notification === true && settings.desktopNotifications !== false
   if (!wantsSound && !wantsNotification) return { allowed: false, reason: 'no-channel' }
   if (facts?.skipFocusedSession === true && settings.skipFocusedSession === true && facts.isMain === true) {
     return { allowed: false, reason: 'focused-session' }
