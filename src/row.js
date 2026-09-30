@@ -34,7 +34,7 @@
 
 import React from 'react'
 import { STATE_KINDS } from './states.js'
-import { SOUND_SCOPES, STATE_DEFAULTS, resolveSettings } from './settings.js'
+import { STATE_DEFAULTS, resolveSettings } from './settings.js'
 import { VOICES, VOICE_NAMES } from './sound.js'
 
 /** The element factory, aliased because `h` reads better than `React.createElement`. */
@@ -155,24 +155,14 @@ export const zh = {
   'notification.play': '试听',
   'notification.reset': '恢复默认',
   'notification.masterVolume': '总音量',
-  'notification.masterVolumeHint': '与各卡片自己的音量相乘',
-  'notification.soundScope': '什么时候出声',
-  'notification.soundScope.off': '从不出声',
-  'notification.soundScope.background': '窗口不在前台时',
-  'notification.soundScope.always': '总是',
-  'notification.minGap': '两次提示音的最小间隔',
-  'notification.repeat': '同一状态的最短重复间隔',
-  'notification.skipFocused': '不要提醒我正在看的那个会话',
-  'notification.skipVisible': '窗口在前台时完全安静',
+  'notification.masterVolumeHint': '与各卡片自己的音量相乘；拖到 0 就是静音',
   'notification.testResult.skipped': '这次不会触发',
   'notification.testResult.silent': '这个状态不会出声',
-  'notification.audio': '音频',
+  'notification.testResult.volumeZero': '音量为 0，所以不会出声',
   'notification.audio.locked': '音频还没解锁 —— 点一次「试听」即可',
   'notification.audio.unavailable': '这个环境没有 Web Audio，所以什么都播不出来',
-  'notification.audio.running': '音频就绪',
   'notification.audio.uninitialized': '音频尚未初始化',
   'notification.problems': '这些内容读不出来：',
-  'notification.ms': '毫秒',
   'notification.cardCount': '这个状态有 {count} 个会话',
   'notification.state.question': '等待回答',
   'notification.state.approval': '等待审批',
@@ -196,24 +186,14 @@ export const en = {
   'notification.play': "Play",
   'notification.reset': "Reset",
   'notification.masterVolume': "Master volume",
-  'notification.masterVolumeHint': "multiplied by each card's own level",
-  'notification.soundScope': "When sound plays",
-  'notification.soundScope.off': "never",
-  'notification.soundScope.background': "while the window is not in front",
-  'notification.soundScope.always': "always",
-  'notification.minGap': "Minimum gap between sounds",
-  'notification.repeat': "Do not repeat the same state within",
-  'notification.skipFocused': "Stay quiet about the session I am looking at",
-  'notification.skipVisible': "Stay completely quiet while the window is in front",
+  'notification.masterVolumeHint': "multiplied by each card's own level; drag it to 0 to mute",
   'notification.testResult.skipped': "nothing would happen for this state",
   'notification.testResult.silent': "this state would not sound",
-  'notification.audio': "Audio",
+  'notification.testResult.volumeZero': "the volume is 0, so nothing would sound",
   'notification.audio.locked': "audio is still locked — press Play once to unlock it",
   'notification.audio.unavailable': "no Web Audio here, so nothing can play",
-  'notification.audio.running': "audio ready",
   'notification.audio.uninitialized': "audio not initialized yet",
   'notification.problems': "These cannot be read:",
-  'notification.ms': "ms",
   'notification.cardCount': "{count} session(s) in this state",
   'notification.state.question': "Waiting for an answer",
   'notification.state.approval': "Waiting for approval",
@@ -556,11 +536,15 @@ export function NotificationRow({
   const setGlobal = (field, value) => {
     onChange(undefined, field, value)
   }
+  // The audio line is worth a line only when it is bad news. A locked or absent audio context is
+  // something the user can act on — press Play — while "audio ready" is the state the row is in
+  // whenever anything works at all: a line that always says "fine" is a line nobody reads, and one
+  // that says it in a vocabulary of its own ("Audio: audio ready") is a line nobody understands.
   const audioKey =
     audio?.available === false
       ? 'notification.audio.unavailable'
       : audio?.state === 'running'
-        ? 'notification.audio.running'
+        ? undefined
         : audio?.state === 'suspended'
           ? 'notification.audio.locked'
           : 'notification.audio.uninitialized'
@@ -576,11 +560,13 @@ export function NotificationRow({
     ),
 
     
-    // ── every global setting, flat ───────────────────────────────────────────
+    // ── the one global setting, flat ─────────────────────────────────────────
     //
-    // One line each, in one grid, with no heading: they are all "how the plugin behaves", and the
-    // labels say which is which. A heading over four controls would cost more height than it
-    // explains — which is the same argument that put these here instead of behind a tab.
+    // A level, and — only when there is something wrong with it — the audio state. There were five
+    // controls here once — a scope, two switches about where the user is, and two gaps — and every one
+    // of them could decide that a real state change was not worth a sound. They are gone; see the note
+    // in `settings.js`. What cannot be a control is the audio state: it is a fact about the browser,
+    // not configuration, and the one thing a user can do about it is press Play.
     h(
       'div',
       { className: cn('globals') },
@@ -599,63 +585,8 @@ export function NotificationRow({
           setGlobal('masterVolume', value)
         },
       }),
-      h(Choice, {
-        t,
-        labelKey: 'notification.soundScope',
-        value: settings.soundScope,
-        options: SOUND_SCOPES,
-        onChange: (value) => {
-          setGlobal('soundScope', value)
-        },
-        describe: (name) => t(`notification.soundScope.${name}`),
-      }),
-      h(NumberField, {
-        t,
-        labelKey: 'notification.minGap',
-        value: settings.minGapMs,
-        min: 0,
-        max: 10_000,
-        step: 100,
-        suffix: t('notification.ms'),
-        onChange: (value) => {
-          setGlobal('minGapMs', value)
-        },
-      }),
-      // A rate limit on a session that flaps between states: it is about the user's attention, not
-      // about any one channel.
-      h(NumberField, {
-        t,
-        labelKey: 'notification.repeat',
-        value: settings.repeatMs,
-        min: 0,
-        max: 60_000,
-        step: 500,
-        suffix: t('notification.ms'),
-        onChange: (value) => {
-          setGlobal('repeatMs', value)
-        },
-      }),
-      h('div', { className: cn('note') }, `${t('notification.audio')}: ${t(audioKey)}`),
+      audioKey === undefined ? null : h('div', { className: cn('note') }, t(audioKey)),
     ),
-
-    Check({
-      t,
-      id: 'dsh-notification-skip-focused',
-      checked: settings.skipFocusedSession === true,
-      onChange: (value) => {
-        setGlobal('skipFocusedSession', value)
-      },
-      labelKey: 'notification.skipFocused',
-    }),
-    Check({
-      t,
-      id: 'dsh-notification-skip-visible',
-      checked: settings.skipWhenVisible === true,
-      onChange: (value) => {
-        setGlobal('skipWhenVisible', value)
-      },
-      labelKey: 'notification.skipVisible',
-    }),
 
 
     // ── the states: a vertical switcher and the card it selects ──────────────

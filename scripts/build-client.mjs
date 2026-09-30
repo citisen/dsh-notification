@@ -61,7 +61,6 @@ const ENVELOPE_EXPORTS = [
   'MESSAGE_KEYS',
   'createRowStore',
   'readSources',
-  'readVisibility',
   'installStyles',
   'installEngine',
   // states.js
@@ -95,12 +94,9 @@ const ENVELOPE_EXPORTS = [
   // system.js
   // engine.js
   'planEvent',
-  'createSpeechLog',
-  'gapElapsed',
   'firstAudible',
   'describePlan',
   // settings.js
-  'SOUND_SCOPES',
   'STATE_FIELDS',
   'GLOBAL_FIELDS',
   'STATE_DEFAULTS',
@@ -110,7 +106,6 @@ const ENVELOPE_EXPORTS = [
   'resolveSettings',
   'defaultSection',
   'admit',
-  'soundAllowed',
   'stateGain',
   'stateVoice',
   // templates.js

@@ -189,12 +189,15 @@ export function stateOf(entry) {
   // completion window: the interface already knows, and clears it when the
   // session is looked at.
   //
-  // One limit worth naming, because it changes what the interface can honestly
-  // promise: the controller suppresses this flag for the session the main view is
-  // showing, and clears it the moment a session becomes that one. So "finished"
-  // is reported for the sessions the user is *not* looking at — which is the case
-  // a notification exists for, and also exactly the case a user testing the
-  // feature by watching the session they just ran will not see.
+  // One limit is worth naming, because it is why {@link diffStatus} does not read
+  // completion from this flag alone: the controller **suppresses** it for the
+  // session the main view is showing, and clears it the moment a session becomes
+  // that one. So the flag can only ever report "finished" for the sessions the
+  // user is *not* looking at — which excludes the single most ordinary way this
+  // plugin is used: one conversation, open in the main view, a long turn, the user
+  // in another application. `diffStatus` therefore reads the end of a turn from the
+  // edge out of `running` instead, and what is left of this flag is the sessions the
+  // interface has decided the user has not seen.
   if (entry.completionUnread === true) return 'done'
   return undefined
 }
@@ -367,6 +370,12 @@ export function tally(observed) {
  * its card ships disabled — but it is an edge like any other, and a plugin that
  * could not speak about it if asked would be deciding policy in the wrong place.
  *
+ * `done` has two sources and they produce one event shape. The interface's own
+ * unread flag (`completionUnread`, via {@link stateOf}) covers the sessions the
+ * user is not looking at; the edge *out of* `running` covers everything else,
+ * including the session on screen — see the note in the body, which is the whole
+ * reason that edge exists.
+ *
  * @param previous - the previous observation, or undefined before the first.
  * @param next - the current observation.
  * @returns events, most urgent first: `{ kind, sessionId, title, summary, isMain, previous }`.
@@ -386,11 +395,39 @@ export function diffStatus(previous, next) {
     // {@link IDLE} rather than left out.
     if (before === undefined) continue
     if (before.kind === entry.kind) continue
-    // A session going quiet is a state change without an event: there is no card
-    // for "nothing is happening", so there is nothing to play and nothing to
-    // show. It is still a change of state — the transition out of it is what
-    // produces the `running` event.
-    if (entry.kind === IDLE) continue
+    // A session going quiet is normally a state change without an event: there is no
+    // card for "nothing is happening", so there is nothing to play and nothing to
+    // show. The one exception is the edge *out of* `running`, which is a turn
+    // ending — and it has to be read from the edge rather than from
+    // `completionUnread`, because the controller suppresses that flag for the
+    // session the main view is showing (see {@link stateOf}). One conversation,
+    // open in the main view, is the ordinary way this plugin is used, so a
+    // completion the plugin could only see for *other* sessions would be no
+    // completion at all. What matters here is the difference between the two facts:
+    // the flag is the interface's bookkeeping about what the *user* has seen, and
+    // the edge is what *this session* did.
+    //
+    // This is the weaker of the two facts, and naming what it cannot say is the
+    // honest way to keep it: a turn that errored also ends, and the level a plugin
+    // can read carries no outcome, so a failure that arrives after the running flag
+    // falls is briefly indistinguishable from a clean finish. The failure log
+    // refines it in the case that matters most — the error event is usually
+    // forwarded with the turn's own end — and nothing else about the decision
+    // changes: `admit` is asked afterwards, and all it asks is whether this state's
+    // card is switched on.
+    if (entry.kind === IDLE) {
+      if (before.kind === 'running') {
+        events.push({
+          kind: 'done',
+          sessionId: id,
+          title: entry.title,
+          summary: entry.summary,
+          isMain: entry.isMain,
+          previous: before.kind,
+        })
+      }
+      continue
+    }
     events.push({
       kind: entry.kind,
       sessionId: id,

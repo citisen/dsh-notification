@@ -47,9 +47,9 @@
 import React from 'react'
 import { defineStore } from '@deepseek-ai/dsh-client-store'
 import { NotificationRow, ROW_CSS, en, zh } from './row.js'
-import { createFailureLog, createSpeechLog, diffStatus, observe, tally } from './states.js'
+import { createFailureLog, diffStatus, observe, tally } from './states.js'
 import { createPlayer } from './sound.js'
-import { describePlan, gapElapsed, planEvent } from './engine.js'
+import { describePlan, firstAudible, planEvent } from './engine.js'
 import { resolveSettings } from './settings.js'
 import { STATE_KINDS } from './states.js'
 
@@ -163,7 +163,8 @@ function createRowStore() {
        * Record what a card's last test did.
        * @param draft - the draft.
        * @param kind - the state that was tested.
-       * @param text - the line to print under the card.
+       * @param text - the line to print under the card, or undefined when the preview played and
+       *   there is nothing to say about it.
        */
       setResult: (draft, kind, text) => {
         draft.results = { ...draft.results, [kind]: text }
@@ -219,22 +220,19 @@ function readSources(ctx) {
 }
 
 /**
- * Wire the interface's state to the two output channels.
+ * Wire the interface's state to the speakers.
  *
  * @param ctx - the client context.
- * @param options - `{ store, player, view }`.
+ * @param options - `{ store, player }`.
  * @returns `{ counts, refresh }` — the live counts and a function that re-reads.
  */
 function installEngine(ctx, options) {
-  const { store, player, view } = options
+  const { store, player } = options
   const failures = createFailureLog()
-  const speech = createSpeechLog()
   const reportedSources = { value: false }
 
   /** The previous observation, or undefined before the first. */
   let previous
-  /** When the last *sound* played, for the burst gap. */
-  let lastSoundAt
   /** Whether the sound was ever admitted long enough to report a locked context. */
   let reportedLocked = false
 
@@ -258,39 +256,22 @@ function installEngine(ctx, options) {
     const counts = tally(next)
 
     // Nothing to do is the common case by a wide margin, and it is worth leaving early rather than
-    // walking the whole visibility path for it.
+    // planning a burst that is empty.
     if (events.length > 0) {
-      const visibility = readVisibility(view)
-      const plans = events.map((entry) =>
-        planEvent({
-          event: entry,
-          settings,
-          counts,
-          stateLabel: stateLabelText(ctx, entry.kind),
-          visibility,
-          now: Date.now(),
-          lastSpoke: speech,
-          // the banner path stays reachable in both states from a test.
-        }),
-      )
+      const plans = events.map((entry) => planEvent({ event: entry, settings }))
 
       // ── the bell ────────────────────────────────────────────────────────────
-      const audible = firstAudibleIndex(plans)
+      // The rule for picking one plan out of a burst lives in the engine, where it can be asserted;
+      // a second copy of that loop here is a second answer to "which state does the user hear".
+      const audible = firstAudible(plans)
       if (audible !== -1) {
         const chosen = plans[audible]
-        const now = Date.now()
-        if (gapElapsed(lastSoundAt, now, settings.minGapMs)) {
-          player.setMaster(settings.masterVolume)
-          const played = player.play(chosen.sound.melody, chosen.sound.voice, chosen.sound.gain)
-          if (played) {
-            lastSoundAt = now
-            speech.note(events[audible].sessionId, now)
-          } else if (!reportedLocked) {
-            // The autoplay policy: a chime requested before any user gesture is dropped rather than
-            // queued, and the row says so once.
-            reportedLocked = true
-          }
-        }
+        player.setMaster(settings.masterVolume)
+        const played = player.play(chosen.sound.melody, chosen.sound.voice, chosen.sound.gain)
+        // A refused play is the autoplay policy: a chime requested before any user gesture is dropped
+        // rather than queued, and the row says so. Nothing else can refuse it now — there is no clock
+        // and no window state in the way, which is the whole point of the current settings model.
+        if (!played) reportedLocked = true
       }
     }
 
@@ -323,7 +304,6 @@ function installEngine(ctx, options) {
       })
       const disposeRemoved = remoteCtx.remote.$on('api-session/removed', (sessionId) => {
         failures.clear(sessionId)
-        speech.forget(sessionId)
       })
       return () => {
         disposeErrors?.()
@@ -332,59 +312,8 @@ function installEngine(ctx, options) {
     }, `${PLUGIN_ID}: session events`)
   })
 
-  return { refresh, speech, failures }
+  return { refresh, failures }
 }
-
-/**
- * The window's own account of whether it is in front.
- *
- * `document.visibilityState` is the half that is always available; `hasFocus()` is
- * the half that distinguishes "behind another window" from "in front", which is
- * the distinction the `background` sound scope is about. Where focus cannot be
- * read the answer is `focused: false`, because the alternative — assuming the user
- * is watching — would silence the chime in exactly the case it exists for.
- *
- * @param view - the window.
- * @returns `{ visible, focused }`, or undefined when there is no document at all.
- */
-function readVisibility(view) {
-  if (view?.document === undefined) return undefined
-  const visible = view.document.visibilityState === undefined ? true : view.document.visibilityState === 'visible'
-  return { visible, focused: typeof view.document.hasFocus === 'function' ? view.document.hasFocus() : false }
-}
-
-/**
- * The first plan that has a sound, so a silent card cannot swallow a burst.
- * @param plans - the plans.
- * @returns the index, or -1.
- */
-function firstAudibleIndex(plans) {
-  for (let index = 0; index < plans.length; index += 1) {
-    if (plans[index]?.sound !== undefined) return index
-  }
-  return -1
-}
-
-/**
- * One state's name in the interface language.
- *
- * The row's own copy is keyed by state, so the same string fills a card's heading
- * and a banner's `{state}` placeholder — one vocabulary rather than two.
- *
- * @param ctx - the client context.
- * @param kind - the state.
- * @returns the label.
- */
-function stateLabelText(ctx, kind) {
-  const t = ctx.locale?.bind?.(LOCALE_NAMESPACE)
-  if (t === undefined) return kind
-  try {
-    return t(`notification.state.${kind}`)
-  } catch {
-    return kind
-  }
-}
-
 
 /**
  * The services this plugin waits for.
@@ -452,7 +381,7 @@ export function apply(ctx) {
   }
 
   ctx.effect(() => watchSettings(), `${PLUGIN_ID}: settings subscription`)
-  const engine = installEngine(ctx, { store, player, view })
+  const engine = installEngine(ctx, { store, player })
 
   // Audio cannot start before the user's first gesture, and the browser will not
   // say when that was. Resuming on the first one anywhere in the interface is what
@@ -477,35 +406,27 @@ export function apply(ctx) {
   )
 
   /**
-   * Play one state's sound, and say what happened.
-   *
-   * The audition is also the gesture that unlocks audio for the session, which is why there is no
-   * separate unlock control: pressing Play is both the most direct way to make a sound and the most
-   * natural way to grant the browser the gesture it wants.
-   *
-   * @param kind - the state.
-   * @returns a line for the card to print, or undefined.
-   */
-  /**
-   * Play one state's sound and report what happened.
+   * Play one state's sound, and say something only if it did not.
    *
    * One button, because there is one thing to do. It plays the state's sound through the real audio
-   * path — the actual voice, the actual melody, the actual product of both volume levels — and then
-   * prints what the engine made of the request. That makes it both a preview and the answer to "will
-   * this work?", which is why the separate *Test* button that used to sit beside it is gone: it planned
-   * a sound and printed a sentence without playing anything, so the two buttons differed only in that
-   * one of them did the thing the user had asked for.
+   * path — the actual voice, the actual melody, the actual product of both volume levels — and the
+   * sound is the report; a sentence under the button describing what the user just heard is noise.
+   * What the card *does* print is the case where nothing sounded, because that one cannot be
+   * diagnosed by listening. The separate *Test* button that used to sit beside it is gone for the
+   * same reason: it planned a sound and printed a sentence without playing anything, so the two
+   * buttons differed only in that one of them did the thing the user had asked for.
    *
    * The card's own switch is treated as on for this one play, so pressing the button on a state that
    * happens to be switched off still answers a useful question instead of reporting the switch the user
-   * is looking at.
+   * is looking at. Nothing else is set aside and nothing else needs to be: a plan's only other way of
+   * being silent is a volume at 0, which is exactly the fact a preview exists to reveal.
    *
    * It is also the gesture that unlocks audio: pressing Play is both the most direct way to make a
    * sound and the most natural way to grant the browser the gesture it wants, which is why there is no
    * separate unlock control.
    *
    * @param kind - the state.
-   * @returns a promise for the line to print.
+   * @returns a promise for the line to print, which is usually undefined.
    */
   const play = async (kind) => {
     const t = ctx.locale.bind(LOCALE_NAMESPACE)
@@ -514,11 +435,8 @@ export function apply(ctx) {
       event: { kind, sessionId: 'play', isMain: false },
       settings: {
         ...settings,
-        enabled: true,
         states: { ...settings.states, [kind]: { ...settings.states[kind], enabled: true } },
       },
-      visibility: readVisibility(view),
-      now: Date.now(),
     })
 
     // Only a plan that would actually make a sound is played. Playing one the engine refused would

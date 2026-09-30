@@ -48,15 +48,23 @@ import { STATE_KINDS } from './states.js'
  */
 
 /**
- * When a sound is allowed to be audible at all.
+ * There is no "when may the bell ring" setting, and its absence is the decision.
  *
- * `background` is the shipped value and the reasoning is the same one the tabbed
- * plugin recorded: while the user is looking at the interface, the interface has
- * already said what happened, and a chime on top of that is noise. `always` is
- * for a user who wants the feedback regardless, and `off` mutes the bell channel
- * without touching any card.
+ * Three of them used to be here: *stay quiet about the session you are looking at*, *stay quiet while
+ * the window is in front*, and the three-way `soundScope` they lived in. All three asked a question
+ * the interface cannot answer on the user's behalf — *are you at the screen right now?* — and answered
+ * it wrong in the case the plugin exists for. One conversation, open in the main view, a long turn,
+ * the user in another application: `background` refused that chime because the *window* was still
+ * visible, though nobody was reading it. A rule that was supposed to prevent annoyance prevented the
+ * notification instead.
+ *
+ * The two switch-shaped rules were also redundant with each other: under `soundScope: 'background'`
+ * the focused-session rule could only ever fire in a state the scope had already silenced.
+ *
+ * So a state that matches plays. The only things that keep it quiet are the ones a user set on
+ * purpose: the card's own switch, its volume, and the master volume — `0` is the mute. **Being quiet
+ * is a volume, not a mode.**
  */
-export const SOUND_SCOPES = ['off', 'background', 'always']
 
 /**
  * The per-state defaults.
@@ -151,26 +159,24 @@ export const STATE_DEFAULTS = {
 /**
  * The global defaults.
  *
- * `minGapMs` is the one number here that is a mitigation rather than a
- * preference: agents ask several questions in a row, and three chimes in three
- * seconds reads as a malfunction. The gap is measured against a clock the caller
- * supplies rather than a timer, because a background window throttles
- * `setTimeout` and a timer-based gap fires late or not at all.
+ * One number. There was a second and a third — a minimum gap between sounds and a minimum repeat
+ * interval per state — and both were removed on request, and both were the same kind of thing as the
+ * scope rules above: a rule about *whether* to speak, written because a burst of chimes reads as a
+ * malfunction. What is left of that protection is the burst rule in the engine, which is not a clock:
+ * one sound per batch of events, and the batch is what the interface published at one moment. A
+ * session that flaps between two states over three seconds chimes each time now, and that is the
+ * choice: the plugin's job is to report a state, and a user who wants it quieter turns the card down
+ * rather than asking the plugin to second-guess which of two real state changes mattered.
  */
 export const GLOBAL_DEFAULTS = {
-  // No plugin-wide switch here. Turning the plugin off is what dsh's own plugin manager does, and this
-  // object is the durable configuration: a field with no control and no schema entry is exactly the kind
-  // of unreachable setting that took three passes to clear out of the interface.
+  // No plugin-wide switch here, and no scope: turning the plugin off is what dsh's own plugin manager
+  // does, and "quiet for now" is this number at 0. A field that exists so a control can exist is how
+  // this interface accumulated three switches that meant the same thing.
   //
   // Full, like every state's own level. The two multiply, so a master below 1 would mean a fresh
   // install does not actually play at the volume its cards claim — and the knob exists for a user
   // who wants things quieter than the card they are configuring, not for a default nobody chose.
   masterVolume: 1,
-  soundScope: 'background',
-  minGapMs: 1500,
-  skipFocusedSession: true,
-  skipWhenVisible: false,
-  repeatMs: 0,
 }
 
 /** The settings-schema version, so a future migration has something to read. */
@@ -192,14 +198,17 @@ export const STATE_FIELDS = [
   { id: 'melody', kind: 'melody', label: 'Melody', hint: 'note names and lengths; off for silence' },
 ]
 
-/** The global field roster, in the order the section lists it. */
+/**
+ * The global field roster, in the order the section lists it.
+ *
+ * Five rows used to sit here and four are gone: *when sound plays*, *stay quiet about the session you
+ * are looking at*, *stay quiet while the window is in front*, *minimum gap between sounds*, *do not
+ * repeat the same state within*. Every one of them was a rule about **whether** to speak, and every
+ * one of them could silence the notification this plugin exists for. What is left answers the only
+ * question a global setting can honestly answer: how loud.
+ */
 export const GLOBAL_FIELDS = [
-  { id: 'masterVolume', kind: 'number', min: 0, max: 1, label: 'Master volume', hint: 'applies to every state’s sound' },
-  { id: 'soundScope', kind: 'choice', values: SOUND_SCOPES, label: 'When sound plays', hint: 'the bell channel' },
-  { id: 'minGapMs', kind: 'number', min: 0, max: 30_000, label: 'Minimum gap between sounds', hint: 'milliseconds' },
-  { id: 'skipFocusedSession', kind: 'boolean', label: 'Stay quiet about the session you are looking at', hint: 'it is already on screen' },
-  { id: 'skipWhenVisible', kind: 'boolean', label: 'Stay quiet while the window is in front', hint: 'no sound and no banner while you are here' },
-  { id: 'repeatMs', kind: 'number', min: 0, max: 600_000, label: 'Do not repeat the same state within', hint: 'milliseconds; 0 for no limit' },
+  { id: 'masterVolume', kind: 'number', min: 0, max: 1, label: 'Master volume', hint: 'applies to every state’s sound; 0 for silence' },
 ]
 
 /**
@@ -266,7 +275,7 @@ function resolveRecord(fields, defaults, stored) {
  * all — a string where a map belongs — yields the shipped defaults.
  *
  * @param section - the stored section, or nothing.
- * @returns `{ version, masterVolume, soundScope, minGapMs,
+ * @returns `{ version, masterVolume, states }`.
  */
 export function resolveSettings(section) {
   const stored = section !== null && typeof section === 'object' ? section : {}
@@ -301,70 +310,29 @@ export function defaultSection() {
 /**
  * Whether a state's configuration is worth acting on for one event.
  *
- * The order of these checks is the design, and every one of them is a decision that has been wrong in
- * some version of this feature somewhere:
+ * One question: **the card's own switch.** "Alert me about this state" is the most specific answer
+ * there is, and the only one left. It used to have company, and each companion silenced a sound the
+ * user had asked for:
  *
- * 1. **The card's own switch, then the global mute.** "Alert me about this state" and "silence
- *    everything for now" are different intentions, and the card's is the more specific answer, so it is
- *    the one reported when both apply. Each of these used to be two switches: the card had a second
- *    one, `sound`, and the row had a plugin-wide one. Both were the same question asked twice — `sound`
- *    was the notification channel's switch and lost its meaning when that channel was removed, and the
- *    plugin-wide one duplicated dsh's own plugin manager — so each pair collapsed to one.
- * 2. **The session the user is looking at.** When the window has focus and the session is the one on
- *    screen, the interface *is* the notification. This is the check that keeps the plugin from being
- *    annoying in the one situation where it has nothing to add.
- * 3. **The same session repeating.** A session can flap between states within seconds, and `repeatMs`
- *    is the user's answer to how much of that they want.
+ * - a `sound` field that was the notification channel's switch, and a plugin-wide one in the row —
+ *   both the same question asked twice, and both gone before this file existed in its current shape;
+ * - *is the user looking at this session?* — a fact the plugin cannot know, guessed wrong in exactly
+ *   the case it exists for (the window open, nobody reading it);
+ * - *has this state spoken too recently?* — a rate limit on real state changes, which is the user
+ *   being told less than the session actually did.
+ *
+ * What is left is the only question the plugin can answer honestly: *did the user ask to be told
+ * about this state?* Everything else about how loud belongs to the volumes.
  *
  * @param kind - the state the event is about.
  * @param settings - resolved settings.
- * @param facts - `{ isMain, now, lastSpokenAt }`.
  * @returns `{ allowed, reason }`: whether anything should happen, and why not.
  */
-export function admit(kind, settings, facts) {
+export function admit(kind, settings) {
   const state = settings?.states?.[kind]
   if (state === undefined) return { allowed: false, reason: 'unknown-state' }
   if (state.enabled !== true) return { allowed: false, reason: 'card-off' }
-  // The global mute closes the one channel for every card at once. It is `soundScope: 'off'`, which sits
-  // with the other rules about when the bell may ring rather than as a switch of its own.
-  if (settings.soundScope === 'off') return { allowed: false, reason: 'global-mute' }
-  if (facts?.skipFocusedSession === true && settings.skipFocusedSession === true && facts.isMain === true) {
-    return { allowed: false, reason: 'focused-session' }
-  }
-  const repeatMs = settings.repeatMs
-  if (
-    typeof repeatMs === 'number' &&
-    repeatMs > 0 &&
-    typeof facts?.lastSpokenAt === 'number' &&
-    typeof facts?.now === 'number' &&
-    facts.now - facts.lastSpokenAt < repeatMs
-  ) {
-    return { allowed: false, reason: 'repeat' }
-  }
   return { allowed: true, reason: 'allowed' }
-}
-
-/**
- * Whether the bell channel may be audible right now.
- *
- * Kept apart from {@link admit} because the two answer different questions and
- * are decided at different moments: `admit` is asked once when an event arrives,
- * and this is asked again at play time, when the window's visibility may have
- * changed. A sound that was admitted while the window was hidden and then played
- * while the user is reading the screen is exactly the case `background` exists to
- * prevent.
- *
- * @param settings - resolved settings.
- * @param facts - `{ visible, focused }`.
- * @returns whether to play.
- */
-export function soundAllowed(settings, facts) {
-  const scope = settings?.soundScope
-  if (scope === 'off') return false
-  if (scope === 'always') return true
-  // `background` — the shipped value: only while this window is not in front.
-  if (settings?.skipWhenVisible === true) return true
-  return facts?.visible !== true || facts?.focused !== true
 }
 
 /**

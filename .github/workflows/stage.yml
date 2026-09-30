@@ -1,0 +1,64 @@
+# Stage this package on npm, deferring the 2FA that publishes it to a person.
+#
+# The npm side of this has to agree with the file exactly. On npmjs.com, under the
+# package's *Trusted Publisher* settings:
+#
+#   Publisher          GitHub Actions
+#   Organization/user   citisen
+#   Repository          dsh-notification
+#   Workflow filename   stage.yml          <- this file's name
+#   Environment         npm-publish        <- the `environment:` below
+#   Allowed actions     npm stage publish  <- the command below, and only it
+#
+# Nothing in here holds a token. The job asks GitHub for an OIDC token
+# (`id-token: write`), npm exchanges it for a short-lived publish token, and the
+# exchange is what turns provenance on — the version gets linked back to this run
+# without any flag asking for it.
+#
+# Staging is not publishing. `npm stage publish` uploads the tarball into a staging
+# area where it is not installable, and a maintainer publishes it later with 2FA:
+#
+#   npm stage list                  # find the stage id
+#   npm stage view <stage-id>       # metadata, including the tag it will carry
+#   npm stage download <stage-id>   # the tarball, if you want to look at it first
+#   npm stage approve <stage-id>    # 2FA prompts here; this is what publishes it
+#   npm stage reject <stage-id>     # or throw the staged version away
+#
+# A staged version is not installable and not tagged until it is approved, so the
+# `install` step in the README waits for that approval rather than for this run.
+name: stage
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  # The OIDC token. Without it npm has nothing to exchange, and the job fails at the
+  # last step with "This command requires you to be logged in".
+  id-token: write
+
+jobs:
+  stage:
+    runs-on: ubuntu-latest
+    # Must equal the environment the trusted publisher is configured with: it is one
+    # of the claims npm checks, and a mismatch is a rejection with no useful message.
+    environment: npm-publish
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      # `npm stage` is younger than any npm a Node release ships with, so the npm in
+      # the image cannot be assumed to have it — this is the line it was verified
+      # against, and it is pinned rather than `latest` so a release of npm cannot
+      # change what this workflow runs.
+      - run: npm install --global npm@^11.19.1
+
+      # `lib/client.js` is committed, and it is what the interface actually loads: a
+      # version whose bundle does not match `src/` must not reach the registry. This
+      # is the check `npm run build` leaves behind, and it is the only gate here.
+      - run: node scripts/build-client.mjs --check
+
+      - run: npm stage publish

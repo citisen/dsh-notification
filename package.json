@@ -1,6 +1,6 @@
 {
   "name": "@citisen/dsh-notification",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "DeepSeek Harness plugin: per-state desktop notifications — a card per session state with its own bell, volume, and system-notification template",
   "type": "module",
   "license": "MIT",

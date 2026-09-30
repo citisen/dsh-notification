@@ -10,6 +10,48 @@ npm run watch   # rebuild on save
 npm run sound   # the melody analyzer, for writing or checking a tune
 ```
 
+## Releasing
+
+A release is **staged by CI and published by a person**, which is what npm's staged publishing is for:
+a workflow can put a tarball in the registry's staging area without a 2FA prompt, and a maintainer
+approves it later with 2FA. The run is the build's provenance, so no token is involved anywhere — see
+[`.github/workflows/stage.yml`](.github/workflows/stage.yml) for the workflow and the trusted-publisher
+settings it has to match on npmjs.com (`stage.yml`, environment `npm-publish`, allowed action
+`npm stage publish`).
+
+The measured sequence:
+
+```sh
+# 1. the version, and the bundle the version claims to carry
+npm version 0.2.0 --no-git-tag-version   # 0.x minor: the settings model changed shape
+node scripts/build-client.mjs --check    # must be silent; CI runs the same check
+
+# 2. push, then stage
+git commit -am "..." && git push
+gh workflow run stage.yml --repo citisen/dsh-notification
+
+# 3. inspect and publish (these are the steps CI is not allowed to do)
+npm stage list                    # the stage id
+npm stage view <stage-id>         # the tag it will carry, and the version
+npm stage download <stage-id>     # optional: the tarball, for looking at
+npm stage approve <stage-id>      # 2FA prompts here — this publishes it
+npm stage reject <stage-id>       # or discard it, which frees the version again
+```
+
+Three facts about that flow, each measured rather than assumed:
+
+- **A staged version is not installable and carries no dist-tag until it is approved.** So the README's
+  install step waits for the approval, not for the workflow.
+- **`npm stage publish` never prompts for 2FA, whatever the credential is**; `approve` and `reject`
+  always do. That is the whole shape of the feature: automation stages, a human publishes.
+- **A trust relationship may only be allowed to stage.** The npm setting behind that is
+  `npm trust github --allow-stage-publish` (with `--allow-publish` left off), which is what makes a
+  stolen CI token unable to publish anything directly.
+
+Staging locally is possible — `npm stage publish` works with the ordinary token in `~/.npmrc` — but it
+is the wrong way to cut a release here: without the OIDC exchange there is no provenance, and the
+workflow exists precisely so that the published tarball is linked to the run that built it.
+
 ## How the bundle is built
 
 `src/client.js` is the browser half's entry, written as ES modules for readability. A DSH client
@@ -46,8 +88,12 @@ used directly rather than a transformation that would have to understand JSX.
 Everything with a decision in it lives in a module that touches neither. `states.js` projects the
 interface's observables into per-session state and diffs two observations into events; `engine.js`
 turns one event plus the resolved settings into a plan; `sound.js` parses a melody and schedules it.
-This is what makes the plugin's behaviour checkable rather than audible — "it stayed quiet because I
-was looking at that session" is an assertion, not an observation.
+This is what makes the plugin's behaviour checkable rather than audible — "that card is switched off,
+so this event never reaches the speakers" is an assertion, not an observation.
+
+It is also why `planEvent` takes exactly two things, an event and the settings. It used to take a
+clock, a window's focus and visibility, and a log of when each session last spoke, and every one of
+those inputs existed to answer *whether* — see [the four rules that were removed](#four-rules-that-were-removed).
 
 ## There is no system notification channel
 
@@ -90,8 +136,8 @@ plugin is one that does one thing.
 There is deliberately no plugin-wide switch in the settings row. dsh's own plugin manager enables and
 disables a plugin by editing the profile's `dsh.profile.bundles`; that is the only place a
 plugin-wide on/off belongs, and a second switch meant two places to look when the plugin was silent.
-The one control here that means "silence everything for now" is *when sound plays* set to `never`, which
-sits with the other rules about when the bell may ring.
+The control that means "silence everything for now" is the master volume at **0** — a level, not a
+mode, which is also why the row no longer asks when the bell may ring at all.
 
 The same duplication turned up twice more inside the card, and both times it was only visible as a
 *count*:
@@ -107,6 +153,29 @@ added back it must be by someone who has read this table and decided the pair is
 that mean the same thing each look correct on their own, which is why all three pairs survived as long as
 they did.
 
+### Four rules that were removed
+
+The settings row also carried four rules that answered *whether* a state should be heard. All four are
+gone, and they are recorded here for the same reason as the table above: each looked reasonable on its
+own, and each could silence the notification the plugin exists for.
+
+| Rule | What it was for | What it actually silenced |
+| --- | --- | --- |
+| *when sound plays* = `while the window is not in front` (the shipped default) | not chiming at somebody who is already reading the interface | the ordinary case — one conversation open in the main view, a long turn, the user in another application. The window was still *visible*, so the chime was refused |
+| *stay quiet about the session I am looking at* | the same idea one level down: the interface *is* the notification | anything about the session on screen. Under the default scope it could only ever fire in a situation the scope had already refused, which is the duplicate-switch shape above |
+| *minimum gap between sounds* | agents ask several questions in a row, and three chimes in three seconds reads as a malfunction | the second of two real state changes, judged by the clock instead of by what happened |
+| *do not repeat the same state within* | a session flapping between two states | real changes into a real state, for as long as the interval lasted |
+
+Two facts decided this rather than taste. `document.hasFocus()` is about the window, not about
+attention: it cannot tell "reading the interface" from "left it open and walked away", and the second
+one is the case the plugin is for. And the rules could not be made to agree with each other — see the
+second row.
+
+What survives is one sound per *burst*: `firstAudible` takes the most urgent plan out of the
+events the interface published in one moment. That is not a clock and not a rate limit — two changes a
+second apart are two sounds — and the README's limitations say so, because a session that flaps is now
+audible every time it does.
+
 Note what the manager's toggle actually does, since it shapes the advice in the README:
 `loadProfileDirectory` reads the bundles list **once at boot** and nothing watches it, so disabling a
 plugin takes effect only after a restart — and it also removes the settings page, because the page is
@@ -119,6 +188,12 @@ releases:
 
 - `ctx.uiSession.sessionStatus` is `Map<sessionId, { running, pendingInteraction, completionUnread }>`
   — the single observable the engine reads, and the same one the sidebar renders from.
+- `completionUnread` is the controller's *"a turn ended and the user has not seen it"* flag, and it is
+  set **only** for sessions the main view is not showing: `observeRunning` skips `isMain(sessionId)`,
+  and `reconcileStatus` clears the flag for whatever is main. A plugin reading completion from it can
+  therefore never report the completion of the conversation on screen — which is the one case a chime
+  exists for. `diffStatus` reads the end of a turn from the `running` → quiet edge instead, and this
+  flag is what the same event looks like when the interface does publish it.
 - `ctx.sessions.list` rows carry `title` (the durable one) and `displayTitle` (synthesized), plus
   `running`, `blank` and `retainedBy.mainView`.
 - `pendingInteraction.kind` is `'question' | 'approval' | 'plan-review'`, one class instance per
@@ -129,18 +204,30 @@ releases:
 
 ## Installing from a local checkout on Windows
 
-When the profile and the checkout are on **different volumes**, `dsh plugin add <path>` is unreliable
-because pnpm cannot create a relative link across them. Link it by hand:
+When the profile and the checkout are on **different volumes** the earlier note here said
+`dsh plugin add <path>` was unreliable, because pnpm cannot create a relative link across them. Measured
+again on this machine — checkout on `D:`, profile under `C:\Users\…\.dsh` — the command is what to use:
+
+| Step | Result |
+| --- | --- |
+| `dsh plugin --profile desktop add D:\mygith\dsh-notification` | exit 0; `dependencies` gained `"@citisen/dsh-notification": "link:D:/mygith/dsh-notification"`, `pnpm-lock.yaml` recorded the same spec, and the `dsh.profile.bundles` entry stayed where it was |
+| `node_modules\@citisen\dsh-notification` | a **`SymbolicLink`** to `D:\mygith\dsh-notification`, created by pnpm — not the directory junction this section used to prescribe, so pnpm did handle the cross-volume link itself |
+| `cordis.patch.yml` | rewritten, but with the same rows: nothing on this path adds or removes a patch entry |
+| the previously installed registry copy | replaced by the link in the same run (`Packages: -1`) |
+
+A symlink on Windows needs Developer Mode or an elevated process, which is the one thing that can still
+make this fail — in which case link it by hand:
 
 ```sh
 cd "$DSH_HOME/profiles/desktop"
 # add "@citisen/dsh-notification": "link:D:/path/to/dsh-notification" to dependencies
 # and "@citisen/dsh-notification" to dsh.profile.bundles, then:
 cmd /c mklink /J node_modules\@citisen\dsh-notification D:\path\to\dsh-notification
-# and add the row to cordis.patch.yml:
-#   - id: notification
-#     name: '@citisen/dsh-notification'
 ```
+
+No row has to be added to `cordis.patch.yml` for the plugin to load: the package's own bundle layer
+inserts `id: notification` (see `cordis.patch.yml` in this repository). A row there is only what carries
+`config:` overrides, which is why the uninstall section of the README has to mention deleting one.
 
 ### What `dsh plugin remove` does, measured
 

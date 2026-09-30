@@ -4,14 +4,15 @@ A [dsh](https://github.com/deepseek-ai/deepseek-harness) plugin that plays a sou
 sessions needs you — **built for the desktop application**, and it works in the browser too.
 
 While you are looking at the interface it already tells you everything: the sidebar has a state per
-session, and the conversation has its own streaming indicators. What it cannot do is tell you
-anything once you are in another application, which is exactly when a long turn is running. This
-plugin plays a chime you can hear from across the room.
+session, and the conversation has its own streaming indicators. This plugin adds the other half —
+**a chime whenever a state you asked about arrives, whether or not you are looking**: in another
+application, with the window behind something else, or sitting right in front of it. If the card is
+on, it sounds.
 
 ## What it adds
 
-*Settings → General* gains a **Session notifications** row: the global settings,
-and then one card per state.
+*Settings → General* gains a **Session notifications** row: one master volume, and then one card per
+state.
 
 | State | Plays when | Default sound |
 | --- | --- | --- |
@@ -19,7 +20,7 @@ and then one card per state.
 | **Waiting for approval** | the agent asked for permission | Bach, Toccata and Fugue in D minor BWV 565 |
 | **Waiting for a plan review** | the agent proposed a plan | three taps on one note, then an octave above, held |
 | **Ended with an error** | the session's agent reported an error | the *Dies irae* plainchant |
-| **Finished** | a turn ended and you have not looked at it | Beethoven, Symphony No. 9 — "Ode to Joy" |
+| **Finished** | a turn ended | Beethoven, Symphony No. 9 — "Ode to Joy" |
 | **Started** | a turn began | Mozart, Eine kleine Nachtmusik K. 525 — **off by default** |
 
 Every sound is a short phrase from a public-domain classical work, chosen to suit its state. **Started**
@@ -29,6 +30,11 @@ if you want it.
 Each card has its own switch, volume, timbre and melody. One switch, because a card can do one thing:
 make a sound. Once that sound is longer than a single blip the melody is worth editing — see
 [the melody](#the-melody).
+
+**There is no "when may it ring" rule** — no window focus, no "do not alert me about the session I am
+looking at", no minimum gap. A state that matches and a card that is on are the whole condition; to be
+quiet, drag the master volume to 0 or switch the card off. The reasoning is
+[below](#why-there-are-no-such-switches).
 
 ## Install
 
@@ -57,7 +63,6 @@ holding everything you changed from the defaults, and it lives in your own patch
   name: "@citisen/dsh-notification"
   config:
     masterVolume: 1
-    soundScope: always
     # ...and the per-state settings
 ```
 
@@ -92,23 +97,19 @@ deletes the checkout behind it.
 
 ### Turning it off without uninstalling
 
-Set **When sound plays** to `off`: every card goes silent and every setting is kept. To switch the
-plugin itself off, use dsh's own plugin manager — that edits the profile's bundles list and needs an
-application restart.
+Drag the **master volume** to 0: every card goes silent, every setting is kept, and dragging it back
+restores the sound. To switch the plugin itself off, use dsh's own plugin manager — that edits the
+profile's bundles list and needs an application restart.
 
 Everything lives in one row under *Settings → General*:
 
-- **Master volume** — multiplies each card's own volume, so both numbers matter.
-- **When sound plays** — `background` (the default) chimes only while the window is hidden or
-  unfocused, `always` chimes regardless, and `off` is the **silence everything** switch: it stops every
-  card without changing any of them.
-- **Minimum gap between sounds** — stops several chimes landing on top of each other, in
-  milliseconds.
-- **Do not repeat the same state within** — rate-limits a session that flaps between states.
-- **Stay quiet about the session I am looking at**, **Stay completely quiet while the window is in
-  front** — see [Privacy and quiet](#privacy-and-quiet).
+- **Master volume** — multiplies each card's own volume, so both numbers matter. **0 is the mute.**
 - **The state switcher** — the six states down the left. Each entry shows how many sessions are in
   that state right now, and a switched-off state is dimmed. Selecting one shows its card.
+
+That is the only global setting, because it answers the only global question with an honest answer:
+**how loud**. Each card's own switch answers *whether*, and the switches that were removed answered
+*are you looking* — which the plugin cannot know, and which it got wrong every time it guessed.
 
 On a card:
 
@@ -118,14 +119,19 @@ On a card:
 | Volume | this card's level, multiplied by the master volume |
 | Timbre | one of the eleven voices below |
 | Melody | the notes to play — see below |
-| Play | plays the sound and reports what happened — see below |
+| Play | plays the sound; speaks only when nothing sounded — see below |
 | Reset | puts every field on this card back to its shipped value |
 
 **Play does two things at once**, which is why there is one button and not two. It plays the state's
 sound through the real audio path — the actual timbre, the actual melody, the actual product of the
-card's volume and the master's — and then prints a line under the card saying what the engine made of
-the request: `Audio: marimba @ 100%`, or the reason nothing would happen. Pressing it on a state
-that is switched off still answers the question, by testing the card as though it were on.
+card's volume and the master's — and **the sound is the report**: nothing is printed when it played.
+The card speaks only when *nothing* sounded ("the volume is 0, so nothing would sound"), because that
+is the one outcome you cannot diagnose by listening. Pressing it on a state that is switched off still
+answers the question, by testing the card as though it were on.
+
+The audio line works the same way and appears only while something is wrong: `audio is still locked —
+press Play once to unlock it`, or the one line for a build with no Web Audio at all. Once sound works,
+the line is gone — there is nothing to report about a thing that is working.
 
 It is also the click that unlocks audio the first time.
 
@@ -186,22 +192,34 @@ It reports each note's pitch, frequency, start time and how long it rings, plus 
 chosen timbre gives it. `--json` emits the same as data, and a melody with an unusable token exits
 non-zero — so a generator can gate on it.
 
-## Privacy and quiet
+## Why there are no such switches
 
-Two rules keep the plugin quiet in the one situation where it has nothing to add:
+Five global rules used to live here, and all five were answering one question: **are you looking right
+now?** — *when sound plays* (`while the window is not in front` / `always` / `never`), *stay quiet
+about the session I am looking at*, *stay completely quiet while the window is in front*, *minimum gap
+between sounds*, and *do not repeat the same state within*.
 
-- **the session you are looking at is not news** — if the window is in front and that session is on
-  screen, the interface already told you;
-- **the bell is gated on the window** — the default `background` scope only chimes while the window
-  is hidden or unfocused.
+They are gone for one reason: **guessing wrong cost exactly the notification the plugin exists for.**
+One conversation, open in the main view, a long turn, the user in another application — the window was
+still visible, so `when sound plays: while the window is not in front` refused the chime. A rule meant
+to prevent annoyance prevented the notification instead. The two switch-shaped rules also contradicted
+each other: under that same default, *stay quiet about the session I am looking at* could only ever
+fire in a situation the scope had already silenced.
 
-Both can be turned off if you want the feedback anyway.
+What survives was never a time rule and is not one now: **one sound per instant** — when the interface
+publishes several state changes at once, the most urgent one is the one you hear. Two changes a second
+apart are two events and each gets its own sound. Being quiet is a volume, not a mode.
 
 ## Limitations
 
-- **`finished` does not fire for the session on screen.** dsh suppresses its unread flag for the
-  session in the main view, so testing this by watching the session you just ran will not make a
-  sound — which is the case the chime is for.
+- **`finished` is the end of a turn, not a verdict on it.** It is read from the session going quiet
+  rather than from dsh's unread flag — which dsh suppresses for the session in the main view, so a
+  plugin leaning on it could never chime for the conversation you are actually watching. That is also
+  the cost: a turn that *errored* ends too, and if the error is reported after the turn is, you may
+  hear the chime for **Finished** where **Ended with an error** was meant.
+- **The same state can chime on every change into it.** Nothing rate-limits a repeat any more: a
+  session flapping between two states sounds each time. Switch its card off, or turn that card down,
+  if it is a session you would rather not hear about.
 - **`failed` means the session's agent reported an error.** dsh does not forward which turn it was,
   and the event is not replayed after a reconnect.
 - **Audio needs one click to unlock** before the first sound. This is the browser's autoplay policy
