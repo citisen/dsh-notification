@@ -164,18 +164,25 @@ test('a rate-limited repeat is refused with its own reason', () => {
   assert.equal(planFor({ lastSpoke: log, now: 99_001 }).admit, true)
 })
 
-test('a banner is planned only when the permission is actually granted', () => {
-  const denied = planFor({ permission: DENIED })
-  assert.equal(denied.banner, undefined)
-  // The sound is unaffected: the two channels do not share a permission.
-  assert.notEqual(denied.sound, undefined)
-  // And the plan says why the banner is missing, which is the difference between a
-  // card that reports "refused" and one that silently does nothing.
-  assert.equal(denied.suppressed, 'denied')
+test('a banner is planned unless the platform has no notification API at all', () => {
+  // The correction this test records: an earlier version treated a `denied` permission as a
+  // reason not to plan a banner. In the desktop application the permission reads `denied`
+  // while the constructor works — measured — so that reasoning withheld banners the
+  // platform would have shown, silently, which is the worst available outcome. Planning now
+  // asks only whether the API exists.
+  for (const permission of ['denied', 'default', 'granted']) {
+    const planned = planFor({ permission: { supported: true, permission, canAsk: false } })
+    assert.notEqual(planned.banner, undefined, `a ${permission} page must still get a banner planned`)
+    assert.equal(planned.suppressed, undefined)
+  }
 
+  // The one state that is genuinely not plannable: no notification API in the environment.
   const unsupported = planFor({ permission: { supported: false, permission: 'unsupported' } })
   assert.equal(unsupported.banner, undefined)
   assert.equal(unsupported.suppressed, 'unsupported')
+
+  // The bell is unaffected by any of it: the two channels do not share a permission.
+  assert.notEqual(planFor({ permission: DENIED }).sound, undefined)
 
   // A user who turned the banner channel off is not "suppressed" — they said no.
   const off = planFor({ settings: resolveSettings({ desktopNotifications: false }) })

@@ -95,7 +95,14 @@ export function planEvent(input) {
   // that says "refused" and one that silently does nothing.
   const wantsBanner = state.notification === true && settings.desktopNotifications !== false
   const banner =
-    wantsBanner && input.permission?.permission === 'granted'
+    // Planned unless the environment has no notification API at all — deliberately **not**
+    // gated on the permission, and that is a correction this plugin needed. In the desktop
+    // application `Notification.permission` reads `denied` while `new Notification(...)`
+    // still constructs, because the shell installs no permission request handler; gating on
+    // the permission therefore withheld banners the platform would have shown, silently.
+    // Whether a banner is *drawn* is not knowable from here in any case, so the plan asks
+    // the only question it can answer: is there something to try with.
+    wantsBanner && input.permission?.supported !== false
       ? buildBanner(event, state, {
           counts: input.counts ?? {},
           stateLabel: input.stateLabel ?? event.kind,
@@ -111,7 +118,7 @@ export function planEvent(input) {
     // one pass, but is the shape a caller extending this should keep honest.
     sound,
     banner,
-    suppressed: wantsBanner && banner === undefined ? input.permission?.permission ?? 'unsupported' : undefined,
+    suppressed: wantsBanner && banner === undefined ? 'unsupported' : undefined,
   }
 }
 

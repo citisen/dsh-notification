@@ -211,7 +211,8 @@ async function drive(url) {
 
   // The settings row lives inside a dialog, so a probe of the idle page cannot see it.
   // The dialog is opened the way a user opens it — by pressing the control that declares
-  // it opens one — and the row is then looked for by its own text and class.
+  // it opens one — and then the row is driven: every tab is clicked and its panel read,
+  // because a tab that renders nothing is a panel the user cannot reach.
   const opened = await socket.send('Runtime.evaluate', {
     expression: `(async () => {
       const trigger = document.querySelector('[aria-haspopup="dialog"]')
@@ -227,16 +228,80 @@ async function drive(url) {
         await new Promise((resolve) => setTimeout(resolve, 1200))
       }
       const rows = [...document.querySelectorAll('[class*="dsh-notification"]')]
-      const section = document.querySelector('[data-slot="settings.general.item"]')
+      // Exact class membership rather than a substring: the state switcher inside the panel is a
+      // second picks-one-of-N tablist — deliberately, since it is the same kind of control — so
+      // the two are told apart by their own classes instead of by counting every role="tab".
+      const isClass = (node, name) => new RegExp('(?:^|\\\\s)' + name + '(?:\\\\s|$)').test(String(node.className))
+      const tabs = [...document.querySelectorAll('[role="tab"]')].filter((node) => isClass(node, 'dsh-notification-tab'))
+
+      // Click each tab in turn and record what its panel contains, so "the tab works" is
+      // an observation rather than an assumption.
+      const panels = []
+      for (const tab of tabs) {
+        tab.click()
+        await new Promise((resolve) => setTimeout(resolve, 400))
+        const active = tabs.find((node) => node.getAttribute('data-active') === 'true')
+        // The row's own panel: the state switcher's tablist is *inside* it, so the panel is
+        // found by its class rather than by being the first element with the panel role.
+        const panel = [...document.querySelectorAll('[role="tabpanel"]')].find((node) => isClass(node, 'dsh-notification-panel'))
+        const cards = panel === undefined ? [] : [...panel.querySelectorAll('[data-state]')]
+        const pickers = panel === undefined ? [] : [...panel.querySelectorAll('button')].filter((node) => isClass(node, 'dsh-notification-picker'))
+        panels.push({
+          tab: (tab.textContent ?? '').trim(),
+          activeAfterClick: (active?.textContent ?? '').trim(),
+          cards: cards.length,
+          pickers: pickers.length,
+          controls: panel === undefined ? 0 : panel.querySelectorAll('input, select, button').length,
+          text: panel === undefined ? '' : panel.innerText.replace(/\\s+/gu, ' ').slice(0, 200),
+        })
+      }
+
       return {
         opened: true,
         navLabels: navButtons.map((button) => (button.textContent ?? '').trim()),
         generalClicked: general !== undefined,
         notificationNodes: rows.length,
-        notificationClasses: [...new Set(rows.map((node) => node.className))].slice(0, 20),
-        notificationText: rows.map((node) => (node.textContent ?? '').trim()).slice(0, 6),
-        slotChildren: section === null ? null : section.children.length,
-        slotText: section === null ? null : section.innerText.slice(0, 600),
+        tabLabels: tabs.map((node) => (node.textContent ?? '').trim()),
+        panels,
+        slotChildren: document.querySelector('[data-slot="settings.general.item"]')?.children.length ?? null,
+        // What this browser will actually do about a banner, read from the renderer the
+        // plugin itself runs in. This is the one environment fact the card cannot report
+        // until its button is pressed, so the probe reads it directly and separately.
+        notificationEnvironment: (() => {
+          const out = { hasGlobal: typeof Notification, permission: null, isSupported: null, constructThrew: null }
+          try { out.permission = Notification.permission } catch (error) { out.permission = 'threw: ' + String(error) }
+          try { out.isSupported = Notification.isSupported === undefined ? 'no isSupported on the renderer class' : Notification.isSupported() } catch (error) { out.isSupported = 'threw: ' + String(error) }
+          try {
+            const toast = new Notification('probe from the page', { body: 'does a renderer toast construct?', silent: true })
+            out.constructed = true
+            toast.close()
+          } catch (error) { out.constructThrew = String(error) }
+          return out
+        })(),
+      }
+    })()`,
+    returnByValue: true,
+    awaitPromise: true,
+  })
+
+  // Press the card's own test button, in the panel that has one, and read the line it
+  // prints. This is the plugin's own answer about its own capability, and it is the
+  // assertion that matters for "the test notification did nothing".
+  const tested = await socket.send('Runtime.evaluate', {
+    expression: `(async () => {
+      const tabs = [...document.querySelectorAll('[role="tab"]')].filter((node) => String(node.className).includes('dsh-notification'))
+      const states = tabs.find((tab) => /States|状态/u.test(tab.textContent ?? ''))
+      states?.click()
+      await new Promise((resolve) => setTimeout(resolve, 400))
+      const button = [...document.querySelectorAll('button')].find((node) => /Test notification|测试通知/u.test(node.textContent ?? ''))
+      if (button === undefined) return { pressed: false, reason: 'no test button in the states panel' }
+      button.click()
+      await new Promise((resolve) => setTimeout(resolve, 2500))
+      const result = document.querySelector('[class*="dsh-notification-result"]')
+      return {
+        pressed: true,
+        result: result === null ? null : (result.textContent ?? '').trim(),
+        permissionAfter: Notification.permission,
       }
     })()`,
     returnByValue: true,
@@ -261,10 +326,34 @@ async function drive(url) {
   console.log(JSON.stringify(probe.result?.value ?? probe, null, 2))
   console.log('===== SETTINGS DIALOG =====')
   console.log(JSON.stringify(opened.result?.value ?? opened, null, 2))
+  console.log('===== TEST BUTTON =====')
+  console.log(JSON.stringify(tested.result?.value ?? tested, null, 2))
+
+  // Whether the ask *itself* is what denies. The card reported `default` before its button
+  // was pressed and `denied` after, which would mean the plugin is destroying the
+  // permission by asking for it. A fresh navigation gets a fresh permission state, so the
+  // question is asked on a page where nothing has touched it yet.
+  await socket.send('Page.navigate', { url })
+  await new Promise((resolve) => setTimeout(resolve, 8000))
+  const askEffect = await socket.send('Runtime.evaluate', {
+    expression: `(async () => {
+      const before = Notification.permission
+      let returned = null
+      let threw = null
+      try { returned = await Notification.requestPermission() } catch (error) { threw = String(error) }
+      let canConstruct = null
+      try { new Notification('after the ask', { silent: true }).close(); canConstruct = true } catch (error) { canConstruct = String(error) }
+      return { before, returned, after: Notification.permission, threw, canConstruct }
+    })()`,
+    returnByValue: true,
+    awaitPromise: true,
+  })
+  console.log('===== ASK EFFECT =====')
+  console.log(JSON.stringify(askEffect.result?.value ?? askEffect, null, 2))
   console.log('===== CONSOLE =====')
-  for (const line of messages.slice(-60)) console.log(line)
+  for (const line of messages.slice(-40)) console.log(line)
   console.log('===== UNCAUGHT =====')
-  for (const line of errors.slice(-30)) console.log(line)
+  for (const line of errors.slice(-20)) console.log(line)
   console.log('===== END =====')
 
   // The verdict, so this works as a gate rather than as something a human has to read.
@@ -273,18 +362,39 @@ async function drive(url) {
   const dialog = opened.result?.value ?? {}
   const crashed = messages.some((line) => /slot entry crashed/u.test(line) && /notification/u.test(line))
   const found = (dialog.notificationNodes ?? 0) > 0
+  const panels = dialog.panels ?? []
   const problems = []
   if (crashed) problems.push('the slot entry crashed; see the console section above')
   if (!found) problems.push('the settings card did not render')
   if (errors.length > 0) problems.push(`${String(errors.length)} uncaught error(s)`)
+  if (panels.length === 0) problems.push('the row renders no tabs')
+  // Every tab must actually switch, and every panel must contain something: a tab that
+  // selects but renders an empty panel is a control that lies about what it did.
+  for (const panel of panels) {
+    if (panel.activeAfterClick !== panel.tab) {
+      problems.push(`clicking the '${panel.tab}' tab left '${panel.activeAfterClick}' active`)
+    }
+    if (panel.controls === 0) problems.push(`the '${panel.tab}' panel renders no control`)
+  }
+  const statesPanel = panels.find((panel) => panel.cards > 0)
+  if (statesPanel === undefined) problems.push('no tab renders the per-state cards')
+  // The States tab must offer every state and show exactly one of them. Six stacked cards was
+  // the layout this replaced, so "one card" is the assertion that the change held.
+  if (statesPanel !== undefined) {
+    if (statesPanel.pickers !== 6) problems.push(`the state switcher offers ${String(statesPanel.pickers)} states, not 6`)
+    if (statesPanel.cards !== 1) problems.push(`the States tab renders ${String(statesPanel.cards)} cards, not 1`)
+  }
+
   if (problems.length > 0) {
     console.error(`live-probe: FAIL — ${problems.join('; ')}`)
     finish(1)
     return
   }
   console.log(
-    `live-probe: OK — the card renders ${String(dialog.notificationNodes)} nodes across ` +
-      `${String((dialog.notificationClasses ?? []).length)} classes, with no console error and no uncaught exception`,
+    `live-probe: OK — ${String(panels.length)} tabs switch correctly (${panels
+      .map((panel) => `${panel.tab}: ${String(panel.controls)} controls`)
+      .join(', ')}), the States tab offers ${String(statesPanel.pickers)} states and renders one card, ` +
+      'with no console error and no uncaught exception',
   )
   finish(0)
 }

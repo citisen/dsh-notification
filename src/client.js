@@ -132,7 +132,11 @@ function installStyles(ctx) {
  */
 function createRowStore() {
   const handle = defineStore({
-    init: () => ({ settings: resolveSettings(undefined), counts: {}, revision: -1 }),
+    // `results` holds the outcome of each card's last test, keyed by state. It lives in the
+    // store rather than in the component's own state because it is the *plugin's* answer
+    // about a real capability — and because a component that kept it locally would lose it
+    // when the renderer remounted the row.
+    init: () => ({ settings: resolveSettings(undefined), counts: {}, results: {}, revision: -1 }),
     actions: {
       /**
        * Fold a configuration snapshot in.
@@ -158,6 +162,15 @@ function createRowStore() {
       setCounts: (draft, counts) => {
         draft.counts = counts
       },
+      /**
+       * Record what a card's last test did.
+       * @param draft - the draft.
+       * @param kind - the state that was tested.
+       * @param text - the line to print under the card.
+       */
+      setResult: (draft, kind, text) => {
+        draft.results = { ...draft.results, [kind]: text }
+      },
     },
   })
   // One instance for the whole plugin, made once: `create()` reads the store's own
@@ -173,6 +186,9 @@ function createRowStore() {
     },
     setCounts: (counts) => {
       instance.actions.setCounts(counts)
+    },
+    setResult: (kind, text) => {
+      instance.actions.setResult(kind, text)
     },
   }
 }
@@ -537,25 +553,74 @@ export function apply(ctx) {
    * @param kind - the state.
    * @returns a promise for the line to print.
    */
+  /**
+   * Raise a real banner for one state, and report what actually happened.
+   *
+   * This is the only control that can answer whether notifications work. What it reports
+   * is the point: "nothing appeared" has several causes that look identical from the
+   * outside and need different actions from the user, so the line under the card names
+   * the cause rather than the symptom.
+   *
+   * **It does not ask for permission**, and that is a correction this plugin needed.
+   * Measured in the desktop shell: `Notification.requestPermission()` resolves
+   * immediately to `denied` with no prompt at all, because the shell installs no
+   * permission request handler for Electron to prompt with — and the call *changes* a
+   * `default` into a `denied`. So asking was a button that could only make things worse,
+   * and it did: pressing the test button once turned a `default` into a `denied` before
+   * the user ever saw a banner. The permission is now reported, never requested, and a
+   * banner is attempted regardless of it — because the constructor works even when the
+   * permission reads `denied`, which is the whole reason gating on it was wrong.
+   *
+   * @param kind - the state.
+   * @returns a promise for the line to print.
+   */
   const test = async (kind) => {
     const t = ctx.locale.bind(LOCALE_NAMESPACE)
     const settings = store.getSnapshot().settings
     const permission = notifier.permission()
-    if (permission.canAsk === true) await notifier.request()
+
+    // A banner is attempted for this one test even when the state's own channels are off,
+    // so pressing the button on a switched-off card still tells the user something useful
+    // instead of reporting the switch they just looked at.
     const plan = planEvent({
-      event: { kind, sessionId: 'test', title: t('notification.title'), summary: t('notification.description'), isMain: false },
-      settings: { ...settings, enabled: true, states: { ...settings.states, [kind]: { ...settings.states[kind], enabled: true } } },
+      event: {
+        kind,
+        sessionId: 'test',
+        title: t('notification.title'),
+        summary: t('notification.description'),
+        isMain: false,
+      },
+      settings: {
+        ...settings,
+        enabled: true,
+        states: { ...settings.states, [kind]: { ...settings.states[kind], enabled: true, notification: true } },
+      },
       counts: store.getSnapshot().counts,
       stateLabel: t(`notification.state.${kind}`),
-      permission: notifier.permission(),
+      // The banner is always planned for a test: whether the *platform* will draw it is
+      // exactly the question being asked, so a permission check here would answer it with
+      // the value rather than with the attempt.
+      permission: { ...permission, permission: 'granted' },
       visibility: readVisibility(view),
       now: Date.now(),
     })
-    if (plan.banner !== undefined) {
+
+    let line
+    if (plan.banner === undefined) {
+      line = `${t('notification.testResult.skipped')} · ${describePlan(plan, t)}`
+    } else {
       const outcome = notifier.show(plan.banner)
-      if (outcome.shown !== true) return t(`notification.testResult.${outcome.reason === 'empty' ? 'empty' : 'threw'}`)
+      line =
+        outcome.shown === true
+          ? `${t('notification.testResult.shown')} · “${plan.banner.title}”`
+          : outcome.reason === 'unsupported'
+            ? t('notification.testResult.unsupported')
+            : t('notification.testResult.threw')
     }
-    return describePlan(plan, t)
+    // Kept in the store so the row re-renders with it, and so it survives the panel being
+    // closed and reopened.
+    store.setResult(kind, line)
+    return line
   }
 
   /**

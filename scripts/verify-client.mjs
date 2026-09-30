@@ -313,7 +313,10 @@ assert.equal(
   false,
 )
 
-// A refused permission means no banner and an honest reason.
+// A refused permission does **not** suppress the banner, and this assertion is the point of
+// a bug fix rather than a detail: the desktop shell reports `denied` while the constructor
+// still works, so gating on the permission withheld banners the platform would have shown.
+// The only thing that suppresses a banner is an environment with no notification API.
 const refused = exports_.planEvent({
   event: events[0],
   settings: shipped,
@@ -321,8 +324,18 @@ const refused = exports_.planEvent({
   visibility: hidden,
   now: 1000,
 })
-assert.equal(refused.banner, undefined)
-assert.equal(refused.suppressed, 'denied')
+assert.notEqual(refused.banner, undefined, 'a denied permission must not suppress the banner')
+assert.equal(refused.suppressed, undefined)
+
+const noApi = exports_.planEvent({
+  event: events[0],
+  settings: shipped,
+  permission: { supported: false, permission: 'unsupported' },
+  visibility: hidden,
+  now: 1000,
+})
+assert.equal(noApi.banner, undefined, 'no notification API means nothing to try with')
+assert.equal(noApi.suppressed, 'unsupported')
 
 // ── the sound, on the shipped bundle ───────────────────────────────────────
 
@@ -541,16 +554,22 @@ assert.ok(tree !== null && typeof tree === 'object', 'the row must render an ele
 /**
  * Render a tree of element descriptors, calling function components.
  *
- * The row hands back `h(StateCard, props)` rather than a finished tree — that is
- * what React stores for a function component, and a check that walked the
- * descriptors without calling them would see the row's own markup and none of the
- * cards, which is the opposite of what this check is for.
+ * The row hands back `h(StateCard, props)` rather than a finished tree — that is what React
+ * stores for a function component, and a check that walked the descriptors without calling
+ * them would see the row's own markup and none of the cards, which is the opposite of what
+ * this check is for.
  *
- * @param node - an element descriptor, an array, a component, or a leaf.
+ * Text is **kept**, as a plain value. An earlier version of this returned `[]` for anything
+ * that was not an object, which silently discarded every label in the tree — so this walker
+ * reported that the tabs had no labels, and the check about tab labels then failed for a
+ * reason that had nothing to do with the plugin.
+ *
+ * @param node - an element descriptor, an array, a component, text, or nothing.
  * @returns the rendered nodes, flattened.
  */
 function renderTree(node) {
-  if (node === null || node === undefined || typeof node !== 'object') return []
+  if (node === null || node === undefined || typeof node === 'boolean') return []
+  if (typeof node === 'string' || typeof node === 'number') return [node]
   if (Array.isArray(node)) return node.flatMap((entry) => renderTree(entry))
   const props = node.props ?? {}
   if (typeof node.type === 'function') {
@@ -562,8 +581,9 @@ function renderTree(node) {
   return [{ ...node, children: (node.children ?? []).flatMap((child) => renderTree(child)) }]
 }
 
-/** Count every element in a rendered tree. @param node @returns the count. */
+/** Count every rendered element. Text is not an element. @param node @returns the count. */
 function countNodes(node) {
+  if (typeof node === 'string' || typeof node === 'number') return 0
   if (node === null || typeof node !== 'object') return 0
   let total = 1
   for (const child of node.children ?? []) total += countNodes(child)
@@ -572,19 +592,102 @@ function countNodes(node) {
 
 const rendered = renderTree(tree)
 const nodes = countNodes(rendered[0])
-assert.ok(nodes > 200, `the row must render every card and control (rendered ${String(nodes)} nodes)`)
+// The panel renders one tab at a time, so this is a floor rather than a total: it catches a
+// row that renders nothing at all, and the per-tab check below is what proves every tab has
+// content.
+assert.ok(nodes > 40, `the row must render its first tab (rendered ${String(nodes)} nodes)`)
 
-// The card roster: one card per state, each with its own switch. This is the
-// assertion that proves the row renders a card *per state* rather than one form.
-const cardState = []
-/** Walk a rendered tree, collecting `data-state` attributes. @param node */
-function collectStates(node) {
-  if (node === null || typeof node !== 'object') return
-  if (node.props?.['data-state'] !== undefined) cardState.push(node.props['data-state'])
-  for (const child of node.children ?? []) collectStates(child)
+/** Walk a rendered tree, collecting every node's props. @param node @param out @returns the collector. */
+function collect(node, out = []) {
+  if (node === null || typeof node !== 'object') return out
+  out.push(node)
+  for (const child of node.children ?? []) collect(child, out)
+  return out
 }
-collectStates(rendered[0])
-assert.deepEqual(cardState.sort(), [...exports_.STATE_KINDS].sort(), 'one card per state')
+
+// The tabs, and that the first one is the state list.
+const all = collect(rendered[0], [])
+const tabButtons = all.filter((node) => node.props?.role === 'tab' && node.props?.['aria-selected'] !== undefined)
+const topTabs = tabButtons.filter((node) => String(node.props.className).includes('dsh-notification-tab'))
+assert.equal(topTabs.length, 4, 'the row must render four tabs')
+assert.equal(topTabs.filter((node) => node.props['aria-selected'] === 'true').length, 1, 'exactly one tab is active')
+
+// The state switcher: six pills, each carrying its own state, and exactly one card rendered —
+// the assertion that the States tab shows one state at a time rather than six stacked forms.
+// The class is matched on a boundary: `dsh-notification-picker` is a prefix of
+// `dsh-notification-pickerCount`, and a substring test counts the count badge as a pill.
+const pickers = all.filter((node) => /(?:^|\s)dsh-notification-picker(?:\s|$)/u.test(String(node.props?.className ?? '')))
+assert.equal(pickers.length, exports_.STATE_KINDS.length, 'the switcher must offer every state')
+assert.deepEqual(
+  pickers.map((node) => node.props['data-active']),
+  exports_.STATE_KINDS.map((kind) => (kind === exports_.STATE_KINDS[0] ? 'true' : 'false')),
+  'the first state is the one shown',
+)
+const cards = all.filter((node) => node.props?.['data-state'] !== undefined)
+assert.equal(cards.length, 1, 'only the selected state renders a card')
+assert.equal(cards[0].props['data-state'], exports_.STATE_KINDS[0])
+
+// Every tab must render a panel with content in it, and clicking a tab must move the
+// selection. A tab that selects and then shows an empty panel is a control that lies about
+// what it did — which a node count cannot see, and which is why this drives each one.
+/**
+ * A tab element's label: the first string among its children.
+ *
+ * The tabs pass their children as an array — the localized label, and a count badge when the
+ * state has sessions in it — and a stub `createElement(type, props, children)` nests that
+ * array one level deeper than React's spread form does. Descending handles both shapes, which
+ * indexing does not.
+ *
+ * @param value - a child, or a list of them.
+ * @returns the first string found, or an empty string.
+ */
+function firstString(value) {
+  if (typeof value === 'string') return value
+  if (typeof value === 'number') return String(value)
+  if (Array.isArray(value)) {
+    for (const entry of value) {
+      const found = firstString(entry)
+      if (found !== '') return found
+    }
+  }
+  return ''
+}
+
+/**
+ * @param node - a rendered tab element.
+ * @returns the label, or an empty string.
+ */
+function tabLabel(node) {
+  // `renderTree` moves an element's children from the descriptor's own key onto the rendered
+  // node, so the label is on `node.children`. Both are read, because this helper should not
+  // depend on which of the two shapes it happens to be handed.
+  return firstString(node.children) || firstString(node.props?.children)
+}
+const visited = []
+for (const tab of topTabs) {
+  const label = tabLabel(tab)
+  assert.notEqual(label, '', 'every tab must have a label')
+  react.__reset()
+  const before = renderTree(slotRow.component({ t, useNotification, ...injected }))
+  const activeBefore = collect(before[0], []).find((node) => node.props?.['aria-selected'] === 'true' && String(node.props?.className ?? '').includes('dsh-notification-tab'))
+  if (activeBefore !== undefined && tabLabel(activeBefore) === label) continue
+  // Click it, then re-render: this is the path a user takes, driven through the component's
+  // own handler rather than by reaching into its state.
+  react.__reset()
+  tab.props.onClick()
+  react.__reset()
+  const after = renderTree(slotRow.component({ t, useNotification, ...injected }))
+  const nodesInTab = collect(after[0], [])
+  const active = nodesInTab.find((node) => node.props?.['aria-selected'] === 'true' && String(node.props?.className ?? '').includes('dsh-notification-tab'))
+  assert.ok(active !== undefined, `the '${label}' tab must become active when clicked`)
+  assert.equal(tabLabel(active), label, `clicking '${label}' must select it`)
+  assert.ok(
+    nodesInTab.length > 10,
+    `the '${label}' panel must render controls (rendered ${String(nodesInTab.length)} nodes)`,
+  )
+  visited.push(label)
+}
+assert.equal(visited.length, 3, 'every tab except the default one must be reachable by clicking')
 
 // The controls write through the form, fenced by the revision the store holds.
 storeInstance.actions.setCounts({ question: 1 })

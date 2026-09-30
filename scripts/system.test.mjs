@@ -126,24 +126,22 @@ test('a notifier shows a banner, tags it, and routes the click', () => {
   assert.equal(notifier.liveCount(), 0)
 })
 
-test('a notifier refuses to show when it would be lying about being heard', () => {
-  const denied = fakeView({ permission: 'denied' })
-  assert.deepEqual(createNotifier({ view: denied.view }).show({ title: 'X' }), {
-    shown: false,
-    reason: 'denied',
-  })
-  assert.equal(denied.constructed.length, 0)
+test('a notifier attempts the banner whatever the permission says, and reports the outcome', () => {
+  // The correction this test records. `Notification.permission` reads `denied` in the
+  // desktop application while `new Notification(...)` still constructs — measured — because
+  // the shell installs no permission request handler. An earlier version gated on the
+  // permission and therefore withheld banners the platform would have shown, silently.
+  for (const permission of ['denied', 'default', 'granted']) {
+    const { view, constructed } = fakeView({ permission })
+    const outcome = createNotifier({ view }).show({ title: 'X' })
+    assert.deepEqual(outcome, { shown: true, reason: 'shown' }, `a ${permission} page must still try`)
+    assert.equal(constructed.length, 1, `a ${permission} page must reach the constructor`)
+  }
 
+  // What it *does* refuse is a case where trying is impossible or meaningless, and it says
+  // which of those it is.
   const unsupported = createNotifier({ view: {} })
   assert.deepEqual(unsupported.show({ title: 'X' }), { shown: false, reason: 'unsupported' })
-
-  // Asking is not permission: a `default` page may not show a banner until the
-  // user has answered, and pretending otherwise is the "sent" that never arrived.
-  const asked = fakeView({ permission: 'default' })
-  assert.deepEqual(createNotifier({ view: asked.view }).show({ title: 'X' }), {
-    shown: false,
-    reason: 'default',
-  })
 
   const granted = fakeView({ permission: 'granted' })
   const empty = createNotifier({ view: granted.view })

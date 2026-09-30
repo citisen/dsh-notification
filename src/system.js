@@ -35,11 +35,26 @@
 /**
  * What the system notification channel is currently able to do.
  *
- * The four cases are kept apart because they need different words in the
- * interface: the API is missing entirely, the user refused, the user has never
- * been asked, or it will work. Collapsing "refused" and "never asked" into one
- * "unavailable" is the version that leaves a user with no idea that a permission
- * prompt exists.
+ * The four cases are kept apart because they need different words in the interface: the
+ * API is missing entirely, the user refused, the user has never been asked, or it will
+ * work. Collapsing "refused" and "never asked" into one "unavailable" is the version that
+ * leaves a user with no idea that a permission prompt exists.
+ *
+ * ## What this measurement is worth, and what it is not
+ *
+ * It is worth **information**: the card prints it, and it is the first thing to look at
+ * when a banner does not appear. It is *not* worth a gate, and that is a correction this
+ * plugin needed. In the desktop application `Notification.permission` reads `denied` while
+ * `new Notification(...)` still constructs successfully — measured, not assumed — because
+ * the shell installs no permission request handler, so Electron has nothing to ask with
+ * and does not refuse on that basis. Gate the banner on this value and a user silently
+ * gets nothing in the one configuration where the platform might well have shown it.
+ *
+ * `canAsk` is a narrower claim than it looks: it says the API *has* a request method, not
+ * that asking produces a prompt. On this platform it does not — the ask resolves
+ * immediately to `denied` with no UI, and it *changes* a `default` to a `denied` — so the
+ * interface tells the user where to enable notifications rather than offering to request
+ * them. Asking is a button that can only make things worse.
  *
  * @param view - the object `Notification` class hangs off, for testability.
  * @returns `{ supported, permission, canAsk }`.
@@ -53,9 +68,6 @@ export function permissionState(view) {
   return {
     supported: true,
     permission,
-    // `requestPermission` is the only way out of `default`, and a build without
-    // it (an old Electron, a hardened page) must not be offered a button that
-    // cannot work.
     canAsk: permission === 'default' && typeof NotificationClass.requestPermission === 'function',
   }
 }
@@ -141,22 +153,30 @@ export function createNotifier(options = {}) {
 
     /**
      * Show one banner.
+     *
+     * **Deliberately not gated on the permission.** The permission is reported by
+     * {@link permission} and printed by the card, but the decision to try is separate,
+     * because in the desktop application the two disagree: the permission reads `denied`
+     * while the constructor works. Refusing to try on that basis would be this plugin
+     * withholding a banner the platform would have shown — silently, which is the worst
+     * available outcome. So the attempt is made, and the outcome is whatever the platform
+     * says: `threw` when it refuses, `shown` when it accepted.
+     *
      * @param input - `{ title, body, tag, data }`.
-     * @returns `{ shown, reason }`: whether a banner was created, and why not
-     *   when it was not.
+     * @returns `{ shown, reason }`: whether a banner was created, and why not when it was
+     *   not.
      */
     show(input) {
       const state = permissionState(view)
       if (!state.supported) return { shown: false, reason: 'unsupported' }
-      if (state.permission !== 'granted') return { shown: false, reason: state.permission }
       const title = typeof input?.title === 'string' ? input.title : ''
       if (title.trim() === '') return { shown: false, reason: 'empty' }
       let banner
       try {
         banner = new view.Notification(title, notificationOptions(input))
       } catch (error) {
-        // A constructor that throws is a real outcome — a platform that refuses
-        // banners from this origin — and the card must be able to say so.
+        // A constructor that throws is a real outcome — a platform that refuses banners
+        // from this origin — and the card must be able to say so.
         return { shown: false, reason: 'threw', error: messageOf(error) }
       }
       live.add(banner)
