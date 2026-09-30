@@ -264,20 +264,18 @@ async function drive(url) {
         tabLabels: tabs.map((node) => (node.textContent ?? '').trim()),
         panels,
         slotChildren: document.querySelector('[data-slot="settings.general.item"]')?.children.length ?? null,
-        // What this browser will actually do about a banner, read from the renderer the
-        // plugin itself runs in. This is the one environment fact the card cannot report
-        // until its button is pressed, so the probe reads it directly and separately.
-        notificationEnvironment: (() => {
-          const out = { hasGlobal: typeof Notification, permission: null, isSupported: null, constructThrew: null }
-          try { out.permission = Notification.permission } catch (error) { out.permission = 'threw: ' + String(error) }
-          try { out.isSupported = Notification.isSupported === undefined ? 'no isSupported on the renderer class' : Notification.isSupported() } catch (error) { out.isSupported = 'threw: ' + String(error) }
-          try {
-            const toast = new Notification('probe from the page', { body: 'does a renderer toast construct?', silent: true })
-            out.constructed = true
-            toast.close()
-          } catch (error) { out.constructThrew = String(error) }
-          return out
+        // What the row's text actually says, which is the check a screenshot would make. A disabled
+        // feature must not be named anywhere in the interface — and this is asserted against the
+        // rendered text rather than against the presence of one control, because the complaint that
+        // produced it was literally "the settings still mention notifications", and the switch left
+        // behind by an earlier attempt was inside a state card rather than on a tab.
+        rowText: (() => {
+          const row = [...document.querySelectorAll('[class*="dsh-notification-row"]')][0]
+          return row === undefined ? '' : row.innerText.replace(/\\s+/gu, ' ')
         })(),
+        // Every checkbox in the row, so the card-level gate is visible from here as well. Two per
+        // state card ("alert for this state", "play a sound") while the banner channel is off.
+        checkboxCount: [...document.querySelectorAll('[class*="dsh-notification"] input[type="checkbox"]')].length,
       }
     })()`,
     returnByValue: true,
@@ -385,6 +383,16 @@ async function drive(url) {
     if (statesPanel.cards !== 1) problems.push(`the States tab renders ${String(statesPanel.cards)} cards, not 1`)
   }
 
+  // A disabled feature must not be named in the interface. This is asserted from the rendered text,
+  // because the failure it guards was exactly that: the channel was switched off in code while the
+  // settings page still said "系统通知" in two places.
+  const rowText = dialog.rowText ?? ''
+  for (const phrase of ['系统通知', 'System notification']) {
+    if (rowText.includes(phrase)) {
+      problems.push(`the row still says "${phrase}" while the notification channel is switched off`)
+    }
+  }
+
   if (problems.length > 0) {
     console.error(`live-probe: FAIL — ${problems.join('; ')}`)
     finish(1)
@@ -394,6 +402,7 @@ async function drive(url) {
     `live-probe: OK — ${String(panels.length)} tabs switch correctly (${panels
       .map((panel) => `${panel.tab}: ${String(panel.controls)} controls`)
       .join(', ')}), the States tab offers ${String(statesPanel.pickers)} states and renders one card, ` +
+      `${String(dialog.checkboxCount)} checkboxes in the row, and the word for a notification appears nowhere, ` +
       'with no console error and no uncaught exception',
   )
   finish(0)

@@ -659,6 +659,47 @@ if (!exports_.NOTIFICATIONS_ENABLED) {
     !tabNames.includes(label('notification.tab.banner')),
     'a switched-off channel must not offer a tab to configure it',
   )
+
+  // And not only the tab. The banner switch also lives on every state card, so hiding just the tab
+  // left six cards offering "系统通知" for a channel that is switched off in code — which is what a
+  // user found after being told it was disabled.
+  //
+  // The card is rendered **both ways** and the two results are compared, because an assertion that a
+  // control is absent passes just as well when the control was never reachable at all — the second
+  // render is what proves the probe can find the thing it claims is missing.
+  //
+  // The probe counts checkboxes in the rendered output. That took a few wrong attempts worth
+  // recording, because each one would have been a test that passed for the wrong reason: the
+  // `labelKey` is a prop of the `Check` *component*, so searching for it in the output finds its
+  // `<label>` and `<input>` and loses the key; and searching the serialized tree for the label
+  // *string* finds nothing ever, since a label is never a text node. An input element is what the
+  // user actually clicks, so that is what is counted.
+  const countCheckboxes = (node, total = 0) => {
+    if (node === null || typeof node !== 'object') return total
+    if (!Array.isArray(node) && node.type === 'input' && node.props?.type === 'checkbox') total += 1
+    for (const child of Array.isArray(node) ? node : (node.children ?? [])) {
+      total = countCheckboxes(child, total)
+    }
+    return total
+  }
+  const renderCard = (banner) =>
+    countCheckboxes(
+      exports_.StateCard({
+        t,
+        kind: 'question',
+        state: exports_.STATE_DEFAULTS.question,
+        count: 0,
+        defaults: exports_.STATE_DEFAULTS.question,
+        banner,
+        onChange: () => undefined,
+        onAudition: () => undefined,
+        onTest: () => undefined,
+      }),
+    )
+  // With the channel live: "alert for this state", "play a sound", "system notification".
+  assert.equal(renderCard(true), 3, 'a live channel contributes the banner switch')
+  // With it off: the same card, one switch fewer, and nothing else lost.
+  assert.equal(renderCard(false), 2, 'the banner switch must not be rendered while the channel is off')
 }
 
 // The state switcher: six pills, each carrying its own state, and exactly one card rendered —

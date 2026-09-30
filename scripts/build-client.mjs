@@ -54,6 +54,8 @@ const ENVELOPE_EXPORTS = [
   'LOCALE_NAMESPACE',
   'PLUGIN_ID',
   'ROW_CSS',
+  'StateCard',
+  'NotificationRow',
   'zh',
   'en',
   'MESSAGE_KEYS',

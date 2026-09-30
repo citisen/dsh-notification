@@ -133,9 +133,9 @@ export const ROW_CSS = [
 export const zh = {
   'notification.title': '会话通知',
   'notification.description':
-    '会话状态变化时告诉你 —— 每个状态一张卡片，各自决定响不响、响多大、什么音色、系统通知说什么',
+    '会话状态变化时告诉你 —— 每个状态一张卡片，各自决定响不响、响多大、什么音色',
   'notification.master': '总开关',
-  'notification.masterHint': '关掉之后所有卡片都不再出声、不再弹通知',
+  'notification.masterHint': '关掉之后所有卡片都不再出声',
   'notification.globals': '全局设置',
   'notification.cards': '状态卡片',
   'notification.cardsHint': '每个状态独立开关。关掉的卡片灰显，但仍然可以编辑。',
@@ -207,9 +207,9 @@ export const zh = {
 export const en = {
   'notification.title': 'Session notifications',
   'notification.description':
-    'Tells you when a session changes state — one card per state, each deciding whether to sound, how loud, in what timbre, and what a desktop banner says',
+    'Tells you when a session changes state — one card per state, each deciding whether to sound, how loud, and in what timbre',
   'notification.master': 'Master switch',
-  'notification.masterHint': 'Switched off, no card sounds and no banner appears',
+  'notification.masterHint': 'Switched off, no card sounds',
   'notification.globals': 'Global settings',
   'notification.cards': 'State cards',
   'notification.cardsHint': 'Each state is switched on and off on its own. A card that is off is dimmed but still editable.',
@@ -410,30 +410,36 @@ function Choice({ t, labelKey, value, options, onChange, describe }) {
  * Three things keep this from being a wall of controls, and each is an answer to a
  * concrete complaint rather than a preference.
  *
- * **A channel's controls appear only when that channel is on.** The volume slider, the
- * timbre and the melody belong to the bell; the two template fields belong to the banner.
- * Rendering them while their switch is off asks the user to configure something that
- * cannot happen, and it buries the switch that would fix it.
+ * **A channel's controls appear only when that channel is on.** The volume slider, the timbre
+ * and the melody belong to the bell; the two template fields belong to the banner. Rendering them
+ * while their switch is off asks the user to configure something that cannot happen, and it buries
+ * the switch that would fix it.
  *
- * **The test result is printed, not logged.** A banner that never appears has several
- * possible causes — a refused permission, a constructor the platform threw, or an
- * operating system deciding not to draw it — and from the outside they are
- * indistinguishable. This card is the only surface that can tell them apart, so it says
- * what happened in words instead of leaving a line in a console nobody opens.
+ * **A channel that does not exist is not mentioned at all.** `banner` says whether the banner
+ * channel is live, and while it is not, neither the switch nor the fields appear. Gating only the
+ * *tab* was not enough: the switch lives on every card, so leaving it rendered still offered
+ * "系统通知" for a channel that is switched off in code. The test for a disabled feature is that its
+ * name appears nowhere, not that one of its two entry points is hidden.
  *
- * **The result is per card**, because the state is what was tested and a single
- * component-wide line would be ambiguous the moment a second card was tried.
+ * **The test result is printed, not logged.** A banner that never appears has several possible
+ * causes — a refused permission, a constructor the platform threw, or an operating system deciding
+ * not to draw it — and from the outside they are indistinguishable. This card is the only surface
+ * that can tell them apart, so it says what happened in words instead of leaving a line in a console
+ * nobody opens.
  *
- * @param props - `{ t, kind, state, count, defaults, result, onChange, onAudition, onTest }`.
+ * **The result is per card**, because the state is what was tested and a single component-wide line
+ * would be ambiguous the moment a second card was tried.
+ *
+ * @param props - `{ t, kind, state, count, defaults, result, banner, onChange, onAudition, onTest }`.
  * @returns the card element.
  */
-export function StateCard({ t, kind, state, count, defaults, result, onChange, onAudition, onTest }) {
+export function StateCard({ t, kind, state, count, defaults, result, banner, onChange, onAudition, onTest }) {
   const off = state.enabled !== true
   const melody = typeof state.melody === 'string' ? state.melody : ''
   const unknown = [...unknownFields(state.title), ...unknownFields(state.body)]
   const uniqueUnknown = [...new Set(unknown)]
   const soundOn = state.sound === true
-  const bannerOn = state.notification === true
+  const bannerOn = state.notification === true && banner === true
   /** Write one field of this card. @param field @param value */
   const set = (field, value) => {
     onChange(kind, field, value)
@@ -487,15 +493,22 @@ export function StateCard({ t, kind, state, count, defaults, result, onChange, o
         },
         labelKey: 'notification.sound',
       }),
-      Check({
-        t,
-        id: `dsh-notification-${kind}-notification`,
-        checked: bannerOn,
-        onChange: (value) => {
-          set('notification', value)
-        },
-        labelKey: 'notification.notification',
-      }),
+      // The banner channel's own switch, and only while that channel exists. Gating the *tab* was
+      // not enough: this checkbox lives on every card, so leaving it rendered meant each state
+      // still offered "系统通知" for a channel that is switched off in code — the exact control the
+      // user went looking for and found. The right test for a disabled feature is that its name
+      // appears nowhere in the interface, not that one of its two entry points is hidden.
+      banner === true
+        ? Check({
+            t,
+            id: `dsh-notification-${kind}-notification`,
+            checked: bannerOn,
+            onChange: (value) => {
+              set('notification', value)
+            },
+            labelKey: 'notification.notification',
+          })
+        : null,
     ),
 
     // ── the bell, and only the bell's own controls ──────────────────────────
@@ -550,6 +563,8 @@ export function StateCard({ t, kind, state, count, defaults, result, onChange, o
       : null,
 
     // ── the banner, and only the banner's own controls ──────────────────────
+    // annerOn is false whenever the channel is off, so this whole block — the two template
+    // fields included — disappears with the switch that would have enabled it.
     bannerOn
       ? h(
           'div',
@@ -784,6 +799,7 @@ export function NotificationRow({
             count: counts[subject],
             defaults: STATE_DEFAULTS[subject],
             result: results?.[subject],
+            banner: NOTIFICATIONS_ENABLED,
             onChange,
             onAudition,
             onTest,
