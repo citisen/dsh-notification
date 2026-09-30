@@ -72,21 +72,69 @@ cmd /c mklink /J node_modules\@citisen\dsh-notification D:\path\to\dsh-notificat
 The row id and the client half's `NOTIFICATION_NAMESPACE` must be the same string,
 `notification` — that is how the settings model finds the configuration.
 
+## System notifications, and the permission trap
+
+The desktop application is an Electron shell that installs **no permission request
+handler**. That single fact produces a behaviour that is worth writing down, because the
+plugin got it wrong first and the symptom was "the test button does nothing":
+
+```
+Notification.permission            = 'default'
+→ the plugin calls requestPermission()
+Notification.permission            = 'denied'     ← and no prompt was ever shown
+```
+
+Electron has nothing to prompt *with*, so the ask resolves immediately to `denied` — and it
+consumes the `default` on the way. A plugin that asks therefore destroys the very permission
+it was trying to obtain. Worse, the permission then reads `denied`, and a plugin that gates
+its banner on that value never even attempts one.
+
+So this plugin does neither:
+
+- **it never asks.** The card says where the switch actually lives — Windows Settings →
+  System → Notifications — because a button that can only make things worse is not a button.
+- **it never gates on the permission.** Measured: `new Notification(...)` constructs
+  successfully even while the permission reads `denied`. The only thing that suppresses a
+  banner here is an environment with no notification API at all. Whether the operating system
+  then *draws* it is not knowable from a page, so the plugin attempts it and reports what it
+  can see.
+
+That is why the card prints a line under itself after a test:
+
+| It says | It means |
+| --- | --- |
+| `sent · "…"` | the platform accepted the banner. If you saw nothing, the OS suppressed it — focus assist, or notifications for this app are off |
+| `the system refused the notification` | the constructor threw; this environment will not show banners from here |
+| `this environment has no system notifications` | there is no `Notification` API at all |
+
+A banner is also silent (`silent: true`), because the plugin makes its own sound at its own
+configured volume and a system chime on top of it would make that volume a lie.
+
 ## Settings
 
-The row is controls, not a document, and that is a deliberate reversal. The previous
-plugin in this family configured four states through a small language in a code editor,
-and the argument for it was real: four states with an appearance *and* a sound are one
-table, and a table reads better as a table. There is no appearance here, so the fourth
-column holding that table together is gone, and what is left is a form whose fields the
-user has to remember the names of.
+The row is **four tabs**, and each is a question rather than a category:
 
-The two things a document was good at are bought back another way:
+| Tab | Holds |
+| --- | --- |
+| **States** | a switcher over the six states, and the selected state's card |
+| **Sound** | master volume, when the bell may play, the minimum gap between sounds, the audio state |
+| **Notifications** | the banner channel, the repeat limit, the platform permission |
+| **Other** | the two quiet rules, and the reset |
 
-- **the melody stays text**, because it is the one field with a real grammar and the one
-  field worth generating rather than clicking;
-- **every card is total** — nothing is behind a mode, and the card's own switch is what
-  collapses it.
+Two decisions inside that are worth stating, because both were complaints first:
+
+- **The States tab shows one state at a time.** Six cards stacked is roughly sixty controls,
+  and the height was not the real problem — the *shape* was: the thing the user came to change
+  was somewhere in a list with nothing to say where. The switcher carries each state's live
+  session count, so the summary the six cards used to provide is still legible without opening
+  any of them, and a state that is switched off is dimmed in the switcher instead of by its own
+  card.
+- **A card renders a channel's controls only while that channel is on.** The volume, timbre and
+  melody belong to the bell; the two template fields belong to the banner. Showing them while
+  their switch is off asks the user to configure something that cannot happen, and buries the
+  switch that would fix it.
+
+Measured in the live page, the States panel is **17 controls instead of 63**.
 
 ### The melody
 
