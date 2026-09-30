@@ -635,45 +635,97 @@ function collect(node, out = []) {
   return out
 }
 
-// The tabs, and that the first one is the state list.
-const all = collect(rendered[0], [])
-const tabButtons = all.filter((node) => node.props?.role === 'tab' && node.props?.['aria-selected'] !== undefined)
-const topTabs = tabButtons.filter((node) => String(node.props.className).includes('dsh-notification-tab'))
-const tabNames = topTabs.map((node) => firstString(node.children))
-assert.equal(topTabs.filter((node) => node.props['aria-selected'] === 'true').length, 1, 'exactly one tab is active')
-
-// With the banner channel switched off — how it ships — there is **no** Notifications tab. A tab of
-// wholly inert controls is worse than an absent one: it invites the user to configure a feature that
-// cannot fire, and leaves them to infer that from the silence.
+// ── the layout ──────────────────────────────────────────────────────────────
 //
-// The expected labels are read from the same dictionary the translator handed to the row uses, so
-// this asserts the tabs' *order and membership* rather than restating their copy — restating it
-// would be a second translation, free to agree with itself and disagree with the interface.
-const label = (key) => recorded.locale.dictionaries.zh[key]
-const expectedTabs = ['states', 'sound', 'banner', 'general']
-  .filter((name) => name !== 'banner' || exports_.NOTIFICATIONS_ENABLED)
-  .map((name) => label(`notification.tab.${name}`))
-assert.deepEqual(tabNames, expectedTabs)
-if (!exports_.NOTIFICATIONS_ENABLED) {
-  assert.ok(
-    !tabNames.includes(label('notification.tab.banner')),
-    'a switched-off channel must not offer a tab to configure it',
-  )
+// The row is one column with a vertical switcher down the side of the state card, and these are the
+// assertions that hold that shape: no top-level tab strip, six state names, and exactly one card.
+// The earlier layout was four tabs across the top, so an assertion that no `dsh-notification-tab`
+// exists is what stops that from creeping back.
 
-  // And not only the tab. The banner switch also lives on every state card, so hiding just the tab
-  // left six cards offering "系统通知" for a channel that is switched off in code — which is what a
-  // user found after being told it was disabled.
+/**
+ * The first string anywhere inside a rendered child list, descending into elements.
+ *
+ * Two shapes make this necessary rather than a simple index. An element's children arrive as an array
+ * — a localized label, and a count badge when the state has sessions in it — and a stub
+ * `createElement(type, props, children)` nests that array one level deeper than React's spread form
+ * does. And the label may be wrapped in an element rather than passed as a bare string: a switcher row
+ * puts its name in a `<span>` so it can sit left while the count sits right. Both are descended.
+ *
+ * @param value - a child, an element, or a list of them.
+ * @returns the first string found, or an empty string.
+ */
+function firstString(value) {
+  if (typeof value === 'string') return value
+  if (typeof value === 'number') return String(value)
+  if (Array.isArray(value)) {
+    for (const entry of value) {
+      const found = firstString(entry)
+      if (found !== '') return found
+    }
+    return ''
+  }
+  if (value !== null && typeof value === 'object') return firstString(value.children)
+  return ''
+}
+
+const all = collect(rendered[0], [])
+const label = (key) => recorded.locale.dictionaries.zh[key]
+
+const topTabs = all.filter((node) => /(?:^|\s)dsh-notification-tab(?:\s|$)/u.test(String(node.props?.className ?? '')))
+assert.equal(topTabs.length, 0, 'the row must not go back to a horizontal tab strip')
+
+const pickers = all.filter((node) => /(?:^|\s)dsh-notification-picker(?:\s|$)/u.test(String(node.props?.className ?? '')))
+assert.equal(pickers.length, exports_.STATE_KINDS.length, 'the switcher must offer every state')
+assert.equal(
+  pickers.filter((node) => node.props['aria-selected'] === 'true').length,
+  1,
+  'exactly one state is selected',
+)
+assert.deepEqual(
+  pickers.map((node) => node.props['aria-selected']),
+  exports_.STATE_KINDS.map((kind) => (kind === exports_.STATE_KINDS[0] ? 'true' : 'false')),
+  'the first state is the one shown',
+)
+assert.deepEqual(
+  pickers.map((node) => firstString(node.children)),
+  exports_.STATE_KINDS.map((kind) => label(`notification.state.${kind}`)),
+  'the switcher must name every state, in roster order',
+)
+
+// The card beside the switcher, and only that one: six cards at once was the layout two revisions
+// ago, and "one card" is the assertion that it stayed gone.
+const cards = all.filter((node) => node.props?.['data-state'] !== undefined)
+assert.equal(cards.length, 1, 'only the selected state renders a card')
+assert.equal(cards[0].props['data-state'], exports_.STATE_KINDS[0])
+
+// Every level is a number box, not a slider. The range input is what made each field three rows tall,
+// so its absence is the check that the compact layout held — and the presence of number inputs is the
+// other half, since a row with neither control would satisfy the first.
+assert.equal(
+  all.filter((node) => node.type === 'input' && node.props?.type === 'range').length,
+  0,
+  'no slider may remain: every level is a number field',
+)
+assert.ok(
+  all.filter((node) => node.type === 'input' && node.props?.type === 'number').length > 0,
+  'the levels must render as number fields',
+)
+
+if (!exports_.NOTIFICATIONS_ENABLED) {
+  // A switched-off channel must not be named anywhere — and not only on a tab. The banner switch also
+  // lives on every state card, so hiding just the tab left six cards offering "系统通知" for a channel
+  // that is switched off in code, which is what a user found after being told it was disabled.
   //
-  // The card is rendered **both ways** and the two results are compared, because an assertion that a
+  // The card is rendered **both ways** and the two results compared, because an assertion that a
   // control is absent passes just as well when the control was never reachable at all — the second
   // render is what proves the probe can find the thing it claims is missing.
   //
-  // The probe counts checkboxes in the rendered output. That took a few wrong attempts worth
-  // recording, because each one would have been a test that passed for the wrong reason: the
-  // `labelKey` is a prop of the `Check` *component*, so searching for it in the output finds its
-  // `<label>` and `<input>` and loses the key; and searching the serialized tree for the label
-  // *string* finds nothing ever, since a label is never a text node. An input element is what the
-  // user actually clicks, so that is what is counted.
+  // The probe counts checkboxes. That took a few wrong attempts worth recording, because each would
+  // have been a test that passed for the wrong reason: the `labelKey` is a prop of the `Check`
+  // *component*, so searching for it in the output finds its `<label>` and `<input>` and loses the
+  // key; and searching the serialized tree for the label *string* finds nothing ever, since a label
+  // is never a text node. An input element is what the user actually clicks, so that is what is
+  // counted.
   const countCheckboxes = (node, total = 0) => {
     if (node === null || typeof node !== 'object') return total
     if (!Array.isArray(node) && node.type === 'input' && node.props?.type === 'checkbox') total += 1
@@ -702,82 +754,6 @@ if (!exports_.NOTIFICATIONS_ENABLED) {
   assert.equal(renderCard(false), 2, 'the banner switch must not be rendered while the channel is off')
 }
 
-// The state switcher: six pills, each carrying its own state, and exactly one card rendered —
-// the assertion that the States tab shows one state at a time rather than six stacked forms.
-// The class is matched on a boundary: `dsh-notification-picker` is a prefix of
-// `dsh-notification-pickerCount`, and a substring test counts the count badge as a pill.
-const pickers = all.filter((node) => /(?:^|\s)dsh-notification-picker(?:\s|$)/u.test(String(node.props?.className ?? '')))
-assert.equal(pickers.length, exports_.STATE_KINDS.length, 'the switcher must offer every state')
-assert.deepEqual(
-  pickers.map((node) => node.props['data-active']),
-  exports_.STATE_KINDS.map((kind) => (kind === exports_.STATE_KINDS[0] ? 'true' : 'false')),
-  'the first state is the one shown',
-)
-const cards = all.filter((node) => node.props?.['data-state'] !== undefined)
-assert.equal(cards.length, 1, 'only the selected state renders a card')
-assert.equal(cards[0].props['data-state'], exports_.STATE_KINDS[0])
-
-// Every tab must render a panel with content in it, and clicking a tab must move the
-// selection. A tab that selects and then shows an empty panel is a control that lies about
-// what it did — which a node count cannot see, and which is why this drives each one.
-/**
- * A tab element's label: the first string among its children.
- *
- * The tabs pass their children as an array — the localized label, and a count badge when the
- * state has sessions in it — and a stub `createElement(type, props, children)` nests that
- * array one level deeper than React's spread form does. Descending handles both shapes, which
- * indexing does not.
- *
- * @param value - a child, or a list of them.
- * @returns the first string found, or an empty string.
- */
-function firstString(value) {
-  if (typeof value === 'string') return value
-  if (typeof value === 'number') return String(value)
-  if (Array.isArray(value)) {
-    for (const entry of value) {
-      const found = firstString(entry)
-      if (found !== '') return found
-    }
-  }
-  return ''
-}
-
-/**
- * @param node - a rendered tab element.
- * @returns the label, or an empty string.
- */
-function tabLabel(node) {
-  // `renderTree` moves an element's children from the descriptor's own key onto the rendered
-  // node, so the label is on `node.children`. Both are read, because this helper should not
-  // depend on which of the two shapes it happens to be handed.
-  return firstString(node.children) || firstString(node.props?.children)
-}
-const visited = []
-for (const tab of topTabs) {
-  const label = tabLabel(tab)
-  assert.notEqual(label, '', 'every tab must have a label')
-  react.__reset()
-  const before = renderTree(slotRow.component({ t, useNotification, ...injected }))
-  const activeBefore = collect(before[0], []).find((node) => node.props?.['aria-selected'] === 'true' && String(node.props?.className ?? '').includes('dsh-notification-tab'))
-  if (activeBefore !== undefined && tabLabel(activeBefore) === label) continue
-  // Click it, then re-render: this is the path a user takes, driven through the component's
-  // own handler rather than by reaching into its state.
-  react.__reset()
-  tab.props.onClick()
-  react.__reset()
-  const after = renderTree(slotRow.component({ t, useNotification, ...injected }))
-  const nodesInTab = collect(after[0], [])
-  const active = nodesInTab.find((node) => node.props?.['aria-selected'] === 'true' && String(node.props?.className ?? '').includes('dsh-notification-tab'))
-  assert.ok(active !== undefined, `the '${label}' tab must become active when clicked`)
-  assert.equal(tabLabel(active), label, `clicking '${label}' must select it`)
-  assert.ok(
-    nodesInTab.length > 10,
-    `the '${label}' panel must render controls (rendered ${String(nodesInTab.length)} nodes)`,
-  )
-  visited.push(label)
-}
-assert.equal(visited.length, topTabs.length - 1, 'every tab except the default one must be reachable by clicking')
 
 // The controls write through the form, fenced by the revision the store holds.
 storeInstance.actions.setCounts({ question: 1 })

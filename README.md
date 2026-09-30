@@ -113,26 +113,42 @@ not to this bundle.
 
 ## Settings
 
-The row is **three tabs**, each a question rather than a category:
+The row is **one column** with a vertical switcher at the bottom:
 
-| Tab | Holds |
-| --- | --- |
-| **States** | a switcher over the six states, and the selected state's card |
-| **Sound** | master volume, when the bell may play, the minimum gap between sounds, the repeat limit, the audio state |
-| **Other** | the two quiet rules, and the reset |
+1. the master switch;
+2. every global setting, flat — master volume, when the bell may play, the minimum gap between
+   sounds, the repeat limit, the two quiet rules, and the audio state;
+3. the six states as a **vertical switcher down the side** of the card it selects.
 
-Two decisions inside that are worth stating, because both were complaints first:
+### Why this shape, after two others
 
-- **The States tab shows one state at a time.** Six cards stacked is roughly sixty controls, and the
-  height was not the real problem — the *shape* was: the thing the user came to change was somewhere
-  in a list with nothing to say where. The switcher carries each state's live session count, so the
-  summary the six cards used to provide is still legible without opening any of them, and a state
-  that is switched off is dimmed in the switcher instead of by its own card.
-- **A card renders a channel's controls only while that channel is on.** With the banner channel
-  switched off that means the volume, timbre and melody fields appear when the bell is on, and
-  nothing else does.
+The first version was one column of everything: about sixty controls, and the complaint it earned was
+*it takes up too much room*. Four tabs across the top fixed the height and lost something — the global
+settings ended up one click away from the cards they apply to, and changing a volume meant working out
+whether it was the master one or the state's.
 
-Measured in the live page, the States panel is **17 controls instead of 63**.
+Three changes produced the current layout, and each answers a specific complaint:
+
+- **Every level is a short number field, not a slider.** A slider spends a whole line on one value:
+  the range control has to be wide enough to drag, so the label goes above it and the reading beside
+  it, and the field is three times the height of the number it sets. A five-character box with its
+  unit on the label's line is the same information in one row — and it is the more precise control,
+  which matters for a duration in milliseconds where a slider's step is a guess.
+- **The globals are flat, not behind a tab.** They are four controls; a heading or a tab over them
+  costs more height than it explains.
+- **The state switcher is a column, not a row of tabs.** A state's name is a phrase, not a word: six
+  across the panel wrap onto a second line, and a wrapped tab strip reads as a list of controls rather
+  than as alternatives. Stacked, the names align, the counts line up — and the card sits *beside* them
+  instead of below them, which is what makes the row shorter than the tabbed version despite showing
+  more at once.
+
+The switcher carries each state's live session count, so the overview the six stacked cards used to
+provide is still legible without opening any of them, and a state that is switched off is dimmed in
+the switcher instead of by its own card. Each card renders a channel's controls only while that
+channel is on.
+
+Measured in the live page: **0 sliders, 4 number fields** (all populated), **21 controls in the row**,
+and one card rendered at a time.
 ### The melody
 
 ```

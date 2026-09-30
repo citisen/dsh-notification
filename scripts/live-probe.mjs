@@ -210,17 +210,17 @@ async function drive(url) {
   await new Promise((resolve) => setTimeout(resolve, 9000))
 
   // The settings row lives inside a dialog, so a probe of the idle page cannot see it.
-  // The dialog is opened the way a user opens it — by pressing the control that declares
-  // it opens one — and then the row is driven: every tab is clicked and its panel read,
-  // because a tab that renders nothing is a panel the user cannot reach.
+  // The dialog is opened the way a user opens it — by pressing the control that declares it opens
+  // one — and then the row is driven: every state in the switcher is clicked and the card read,
+  // because a switcher entry that renders nothing is a state the user cannot reach.
   const opened = await socket.send('Runtime.evaluate', {
     expression: `(async () => {
       const trigger = document.querySelector('[aria-haspopup="dialog"]')
       if (trigger === null) return { opened: false, reason: 'no settings trigger in the document' }
       trigger.click()
       await new Promise((resolve) => setTimeout(resolve, 1500))
-      // The settings dialog lists a section per registered section; General is the one
-      // this plugin's card belongs to, and it is selected by its own label.
+      // The settings dialog lists a section per registered section; General is the one this
+      // plugin's card belongs to, and it is selected by its own label.
       const navButtons = [...document.querySelectorAll('nav button')]
       const general = navButtons.find((button) => /通用|General/u.test(button.textContent ?? ''))
       if (general !== undefined) {
@@ -228,32 +228,41 @@ async function drive(url) {
         await new Promise((resolve) => setTimeout(resolve, 1200))
       }
       const rows = [...document.querySelectorAll('[class*="dsh-notification"]')]
-      // Exact class membership rather than a substring: the state switcher inside the panel is a
-      // second picks-one-of-N tablist — deliberately, since it is the same kind of control — so
-      // the two are told apart by their own classes instead of by counting every role="tab".
+      // Exact class membership rather than a substring: the picker class is a prefix of the picker
+      // count badge's class, so a substring test would count every badge as a switcher entry.
       const isClass = (node, name) => new RegExp('(?:^|\\\\s)' + name + '(?:\\\\s|$)').test(String(node.className))
-      const tabs = [...document.querySelectorAll('[role="tab"]')].filter((node) => isClass(node, 'dsh-notification-tab'))
+      const pickers = [...document.querySelectorAll('[role="tab"]')].filter((node) => isClass(node, 'dsh-notification-picker'))
+      // A horizontal tab strip is what this replaced, so its absence is asserted rather than assumed.
+      const horizontalTabs = [...document.querySelectorAll('[class*="dsh-notification"]')].filter((node) => isClass(node, 'dsh-notification-tab'))
 
-      // Click each tab in turn and record what its panel contains, so "the tab works" is
-      // an observation rather than an assumption.
-      const panels = []
-      for (const tab of tabs) {
-        tab.click()
-        await new Promise((resolve) => setTimeout(resolve, 400))
-        const active = tabs.find((node) => node.getAttribute('data-active') === 'true')
-        // The row's own panel: the state switcher's tablist is *inside* it, so the panel is
-        // found by its class rather than by being the first element with the panel role.
-        const panel = [...document.querySelectorAll('[role="tabpanel"]')].find((node) => isClass(node, 'dsh-notification-panel'))
-        const cards = panel === undefined ? [] : [...panel.querySelectorAll('[data-state]')]
-        const pickers = panel === undefined ? [] : [...panel.querySelectorAll('button')].filter((node) => isClass(node, 'dsh-notification-picker'))
-        panels.push({
-          tab: (tab.textContent ?? '').trim(),
-          activeAfterClick: (active?.textContent ?? '').trim(),
+      // Click each state in turn and record what the card beside it contains, so "the switcher works"
+      // is an observation rather than an assumption.
+      const entries = []
+      for (const picker of pickers) {
+        picker.click()
+        await new Promise((resolve) => setTimeout(resolve, 350))
+        const active = pickers.find((node) => node.getAttribute('data-active') === 'true')
+        const cards = [...document.querySelectorAll('[class*="dsh-notification-card"]')].filter((node) => node.getAttribute('data-state') !== null)
+        entries.push({
+          state: (picker.textContent ?? '').replace(/\\d+$/u, '').trim(),
+          activeAfterClick: (active?.textContent ?? '').replace(/\\d+$/u, '').trim(),
           cards: cards.length,
-          pickers: pickers.length,
-          controls: panel === undefined ? 0 : panel.querySelectorAll('input, select, button').length,
-          text: panel === undefined ? '' : panel.innerText.replace(/\\s+/gu, ' ').slice(0, 200),
+          inputs: cards.length === 0 ? 0 : cards[0].querySelectorAll('input, select, button').length,
         })
+      }
+
+      // Every control in the row, so the compact layout is measured rather than described — and the
+      // number fields' *values*, because an empty box satisfies "a number input exists" while telling
+      // the user nothing. That distinction is what this reports.
+      const row = rows[0]
+      const numberInputs = row === undefined ? [] : [...row.querySelectorAll('input[type="number"]')]
+      const counts = {
+        sliders: row === undefined ? 0 : row.querySelectorAll('input[type="range"]').length,
+        numbers: numberInputs.length,
+        emptyNumbers: numberInputs.filter((input) => String(input.value).trim() === '').length,
+        numberValues: numberInputs.map((input) => input.value),
+        checkboxes: row === undefined ? 0 : row.querySelectorAll('input[type="checkbox"]').length,
+        controls: row === undefined ? 0 : row.querySelectorAll('input, select, button').length,
       }
 
       return {
@@ -261,45 +270,35 @@ async function drive(url) {
         navLabels: navButtons.map((button) => (button.textContent ?? '').trim()),
         generalClicked: general !== undefined,
         notificationNodes: rows.length,
-        tabLabels: tabs.map((node) => (node.textContent ?? '').trim()),
-        panels,
+        entryLabels: pickers.map((node) => (node.textContent ?? '').trim()),
+        entries,
+        controls: counts,
+        horizontalTabs: horizontalTabs.length,
         slotChildren: document.querySelector('[data-slot="settings.general.item"]')?.children.length ?? null,
         // What the row's text actually says, which is the check a screenshot would make. A disabled
         // feature must not be named anywhere in the interface — and this is asserted against the
         // rendered text rather than against the presence of one control, because the complaint that
         // produced it was literally "the settings still mention notifications", and the switch left
         // behind by an earlier attempt was inside a state card rather than on a tab.
-        rowText: (() => {
-          const row = [...document.querySelectorAll('[class*="dsh-notification-row"]')][0]
-          return row === undefined ? '' : row.innerText.replace(/\\s+/gu, ' ')
-        })(),
-        // Every checkbox in the row, so the card-level gate is visible from here as well. Two per
-        // state card ("alert for this state", "play a sound") while the banner channel is off.
-        checkboxCount: [...document.querySelectorAll('[class*="dsh-notification"] input[type="checkbox"]')].length,
+        rowText: row === undefined ? '' : row.innerText.replace(/\\s+/gu, ' '),
       }
     })()`,
     returnByValue: true,
     awaitPromise: true,
   })
 
-  // Press the card's own test button, in the panel that has one, and read the line it
-  // prints. This is the plugin's own answer about its own capability, and it is the
-  // assertion that matters for "the test notification did nothing".
+  // Press the card's own test button, in the card the switcher is showing, and read the line it
+  // prints. This is the plugin's own answer about its own capability.
   const tested = await socket.send('Runtime.evaluate', {
     expression: `(async () => {
-      const tabs = [...document.querySelectorAll('[role="tab"]')].filter((node) => String(node.className).includes('dsh-notification'))
-      const states = tabs.find((tab) => /States|状态/u.test(tab.textContent ?? ''))
-      states?.click()
-      await new Promise((resolve) => setTimeout(resolve, 400))
-      const button = [...document.querySelectorAll('button')].find((node) => /Test notification|测试通知/u.test(node.textContent ?? ''))
-      if (button === undefined) return { pressed: false, reason: 'no test button in the states panel' }
+      const button = [...document.querySelectorAll('[class*="dsh-notification"] button')].find((node) => /Test notification|测试通知/u.test(node.textContent ?? ''))
+      if (button === undefined) return { pressed: false, reason: 'no test button in the row' }
       button.click()
       await new Promise((resolve) => setTimeout(resolve, 2500))
       const result = document.querySelector('[class*="dsh-notification-result"]')
       return {
         pressed: true,
         result: result === null ? null : (result.textContent ?? '').trim(),
-        permissionAfter: Notification.permission,
       }
     })()`,
     returnByValue: true,
@@ -354,38 +353,44 @@ async function drive(url) {
   for (const line of errors.slice(-20)) console.log(line)
   console.log('===== END =====')
 
-  // The verdict, so this works as a gate rather than as something a human has to read.
-  // A card that registers and then throws is the failure mode this whole harness exists
-  // for, and it shows up as `slot entry crashed` in the console with nothing on screen.
+  // The verdict, so this works as a gate rather than as something a human has to read. A card that
+  // registers and then throws is the failure mode this whole harness exists for, and it shows up as
+  // `slot entry crashed` in the console with nothing on screen.
   const dialog = opened.result?.value ?? {}
   const crashed = messages.some((line) => /slot entry crashed/u.test(line) && /notification/u.test(line))
-  const found = (dialog.notificationNodes ?? 0) > 0
-  const panels = dialog.panels ?? []
+  const entries = dialog.entries ?? []
+  const controls = dialog.controls ?? {}
   const problems = []
   if (crashed) problems.push('the slot entry crashed; see the console section above')
-  if (!found) problems.push('the settings card did not render')
+  if ((dialog.notificationNodes ?? 0) === 0) problems.push('the settings row did not render')
   if (errors.length > 0) problems.push(`${String(errors.length)} uncaught error(s)`)
-  if (panels.length === 0) problems.push('the row renders no tabs')
-  // Every tab must actually switch, and every panel must contain something: a tab that
-  // selects but renders an empty panel is a control that lies about what it did.
-  for (const panel of panels) {
-    if (panel.activeAfterClick !== panel.tab) {
-      problems.push(`clicking the '${panel.tab}' tab left '${panel.activeAfterClick}' active`)
+
+  // The layout: a vertical switcher offering every state, one card at a time, and no horizontal tab
+  // strip — which is the shape this replaced.
+  if (entries.length !== 6) problems.push(`the switcher offers ${String(entries.length)} states, not 6`)
+  if ((dialog.horizontalTabs ?? 0) !== 0) problems.push('a horizontal tab strip is back')
+  for (const entry of entries) {
+    if (entry.activeAfterClick !== entry.state) {
+      problems.push(`clicking '${entry.state}' left '${entry.activeAfterClick}' selected`)
     }
-    if (panel.controls === 0) problems.push(`the '${panel.tab}' panel renders no control`)
+    if (entry.cards !== 1) problems.push(`'${entry.state}' renders ${String(entry.cards)} cards, not 1`)
+    if (entry.inputs === 0) problems.push(`the '${entry.state}' card renders no control`)
   }
-  const statesPanel = panels.find((panel) => panel.cards > 0)
-  if (statesPanel === undefined) problems.push('no tab renders the per-state cards')
-  // The States tab must offer every state and show exactly one of them. Six stacked cards was
-  // the layout this replaced, so "one card" is the assertion that the change held.
-  if (statesPanel !== undefined) {
-    if (statesPanel.pickers !== 6) problems.push(`the state switcher offers ${String(statesPanel.pickers)} states, not 6`)
-    if (statesPanel.cards !== 1) problems.push(`the States tab renders ${String(statesPanel.cards)} cards, not 1`)
+
+  // Every level is a number box and no level is a slider. This is the compact layout, measured — and
+  // the empty check is the one that matters: a box with no value satisfies "a number input exists"
+  // while showing the user nothing, which is how a converted control ends up looking broken.
+  if ((controls.sliders ?? 0) !== 0) problems.push(`${String(controls.sliders)} slider(s) remain`)
+  if ((controls.numbers ?? 0) === 0) problems.push('no number field rendered')
+  if ((controls.emptyNumbers ?? 0) !== 0) {
+    problems.push(
+      `${String(controls.emptyNumbers)} number field(s) render empty (values: ${JSON.stringify(controls.numberValues)})`,
+    )
   }
 
   // A disabled feature must not be named in the interface. This is asserted from the rendered text,
   // because the failure it guards was exactly that: the channel was switched off in code while the
-  // settings page still said "系统通知" in two places.
+  // settings page still said "系统通知".
   const rowText = dialog.rowText ?? ''
   for (const phrase of ['系统通知', 'System notification']) {
     if (rowText.includes(phrase)) {
@@ -399,11 +404,10 @@ async function drive(url) {
     return
   }
   console.log(
-    `live-probe: OK — ${String(panels.length)} tabs switch correctly (${panels
-      .map((panel) => `${panel.tab}: ${String(panel.controls)} controls`)
-      .join(', ')}), the States tab offers ${String(statesPanel.pickers)} states and renders one card, ` +
-      `${String(dialog.checkboxCount)} checkboxes in the row, and the word for a notification appears nowhere, ` +
-      'with no console error and no uncaught exception',
+    `live-probe: OK — the vertical switcher offers ${String(entries.length)} states and each one selects a ` +
+      `single card, ${String(controls.numbers)} number fields and ${String(controls.sliders)} sliders, ` +
+      `${String(controls.controls)} controls in the row, no horizontal tab strip, the word for a notification ` +
+      'appears nowhere, with no console error and no uncaught exception',
   )
   finish(0)
 }
