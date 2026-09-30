@@ -1,0 +1,78 @@
+{
+  "name": "@citisen/dsh-notification",
+  "version": "0.1.0",
+  "description": "DeepSeek Harness plugin: per-state desktop notifications — a card per session state with its own bell, volume, and system-notification template",
+  "type": "module",
+  "license": "MIT",
+  "author": "citisen",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/citisen/dsh-notification.git"
+  },
+  "homepage": "https://github.com/citisen/dsh-notification#readme",
+  "bugs": {
+    "url": "https://github.com/citisen/dsh-notification/issues"
+  },
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./client": "./lib/client.js",
+    "./src/*": "./src/*",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib/index.js",
+    "lib/client.js",
+    "cordis.patch.yml",
+    "src",
+    "scripts",
+    "README.md",
+    "README.zh.md",
+    "LICENSE"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "immediately": true
+    }
+  },
+  "scripts": {
+    "build": "node scripts/build-client.mjs",
+    "watch": "node scripts/build-client.mjs --watch",
+    "test": "node --test \"scripts/*.test.mjs\"",
+    "sound": "node scripts/analyze-sound.mjs",
+    "verify": "node scripts/verify-host.mjs && node scripts/verify-client.mjs",
+    "check": "node scripts/build-client.mjs --check && npm run test && npm run verify",
+    "check:all": "npm run check && node scripts/verify-profile.mjs"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.4"
+  },
+  "peerDependenciesMeta": {
+    "@deepseek-ai/cordis": {
+      "optional": true
+    }
+  },
+  "keywords": [
+    "deepseek-harness",
+    "deepseek",
+    "dsh",
+    "dsh-plugin",
+    "dsh-bundle",
+    "desktop",
+    "notification",
+    "system-notification",
+    "web-audio",
+    "chime",
+    "session-status"
+  ],
+  "dependencies": {
+    "@deepseek-ai/schemastery": "^3.18.2"
+  }
+}

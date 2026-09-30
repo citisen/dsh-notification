@@ -1,0 +1,19 @@
+# dsh-notification bundle patch — the layer this package contributes to a dsh profile.
+#
+# A bundle layer is a top-level YAML array of loader patch entries applied over
+# the layers before it (`dsh-base`, `dsh-web-app`, then the profile's own
+# `cordis.patch.yml`). This patch only inserts one row, so it composes with any
+# other ordering.
+#
+# The inserted row is the plugin's host half. It is also the row this plugin's
+# settings are addressed by: the client half resolves its own configuration form
+# from the configuration service by this id, so the string here and the string
+# the browser half asks for have to stay the same one. `'notification'` is
+# deliberately not a `ui-*` name — dsh reserves that prefix for its own shipped
+# surfaces, and a third-party bundle claiming one would be squatting.
+#
+# The quote around `name` is required: a bare YAML scalar may not start with `@`.
+
+- insert:
+    - id: notification
+      name: '@citisen/dsh-notification'
