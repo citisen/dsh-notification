@@ -187,8 +187,15 @@ const partial = resolvePlain(host.Config, { masterVolume: 0.25, states: { done: 
 assert.equal(partial.masterVolume, 0.25)
 assert.equal(partial.states.done.volume, 0.1)
 assert.equal(partial.states.done.voice, SHIPPED_VOICE_FOR('done'))
-assert.equal(partial.enabled, true)
 assert.equal(partial.soundScope, 'background')
+// The plugin-wide switch is gone: turning the plugin off is what dsh's own plugin manager does, and the
+// host must not carry a second field for it — a stored `enabled: false` nobody can reach is the state
+// this asserts against.
+assert.equal(
+  Object.hasOwn(partial, 'enabled'),
+  false,
+  'the durable configuration must not carry a plugin-wide switch',
+)
 
 /** @param state - the state name. @returns the voice the host ships for it. */
 function SHIPPED_VOICE_FOR(state) {

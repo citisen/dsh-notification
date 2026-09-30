@@ -136,8 +136,6 @@ export const zh = {
   'notification.title': '会话通知',
   'notification.description':
     '会话状态变化时告诉你 —— 每个状态一张卡片，各自决定响不响、响多大、什么音色',
-  'notification.master': '总开关',
-  'notification.masterHint': '关掉之后所有卡片都不再出声',
   'notification.globals': '全局设置',
   'notification.cards': '状态卡片',
   'notification.enabled': '启用这个状态',
@@ -180,8 +178,6 @@ export const zh = {
 export const en = {
   'notification.title': "Session notifications",
   'notification.description': "Tells you when a session changes state — one card per state, each deciding whether to sound, how loud, and in what timbre",
-  'notification.master': "Master switch",
-  'notification.masterHint': "Switched off, no card sounds",
   'notification.globals': "Global settings",
   'notification.cards': "States",
   'notification.enabled': "Alert for this state",
@@ -508,7 +504,7 @@ export function StateCard({ t, kind, state, count, defaults, result, onChange, o
 }
 
 /**
- * The row: the master switch, every global setting, then the states as a vertical tab set.
+ * The row: the global settings, then the states as a vertical tab set.
  *
  * `useNotification` is the store hook the slot registry injects — the plugin's own live
  * configuration, so every control reads what the engine is actually running on rather than a copy
@@ -523,11 +519,16 @@ export function StateCard({ t, kind, state, count, defaults, result, onChange, o
  * the cards they apply to, and a user changing a volume had to work out whether it was the master
  * one or the state's.
  *
- * What replaced the tabs is a single column with a vertical tab set at the bottom of it:
+ * What replaced the tabs is a single column with a vertical switcher at the bottom of it:
  *
- * 1. the master switch;
- * 2. every global setting, flat, each on one line — {@link NumberField} is what makes that fit;
- * 3. the state switcher **down the side** of the state card it selects.
+ * 1. every global setting, flat, each on one line — {@link NumberField} is what makes that fit;
+ * 2. the state switcher **down the side** of the state card it selects.
+ *
+ * There is no plugin-wide switch above the settings. Turning the whole plugin off is what dsh's own
+ * plugin manager is for, and a second answer to that question meant two places to look when the plugin
+ * was silent — as well as a settings field whose only job was to make every other field meaningless.
+ * "Silence everything for now" is still one control, and it is the *when sound plays* choice set to
+ * `never`, which sits with the other rules about when the bell may ring.
  *
  * The switcher went to the side rather than staying a row of tabs because a state's name is a
  * phrase, not a word: six of them across the panel wrap onto a second line, and a wrapped tab strip
@@ -541,7 +542,6 @@ export function StateCard({ t, kind, state, count, defaults, result, onChange, o
 export function NotificationRow({
   t,
   useNotification,
-  permission,
   audio,
   onChange,
   onPlay,
@@ -579,15 +579,6 @@ export function NotificationRow({
       h('div', { className: cn('desc') }, t('notification.description')),
     ),
 
-    Check({
-      t,
-      id: 'dsh-notification-master',
-      checked: settings.enabled === true,
-      onChange: (value) => {
-        setGlobal('enabled', value)
-      },
-      labelKey: 'notification.master',
-    }),
     
     // ── every global setting, flat ───────────────────────────────────────────
     //

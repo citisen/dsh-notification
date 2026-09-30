@@ -82,32 +82,26 @@ turns one event plus the resolved settings into a plan; `sound.js` parses a melo
 This is what makes the plugin's behaviour checkable rather than audible — "it stayed quiet because I
 was looking at that session" is an assertion, not an observation.
 
-## The notification channel is switched off
+## There is no system notification channel
 
-Two modules are kept but not used:
+This plugin makes a sound. A banner channel was built, shipped, and then **removed** — the code is not
+imported by anything, not in the bundle, and not in the settings model. Removing it took the bundle from
+164 KB to 129 KB, which is the measurable form of "this code is not running".
+
+Two modules are kept in the repository, with their unit tests, because they are what a host-side bridge
+would build on:
 
 | Path | What it is |
 | --- | --- |
 | `src/system.js` | The Web `Notification` API wrapper and its permission states. |
 | `src/templates.js` | The notification text and its placeholder vocabulary. |
 
-**Neither module is in the shipped bundle.** When the row stopped importing them the bundle lost
-about 20 KB, which is the measurable form of "this code is not running". They are kept in the
-repository, with their unit tests, for whoever restores the channel.
+Nothing imports either one, so the bundle inliner drops them. `verify-client` asserts the property that
+matters rather than describing it: a plan's own keys are exactly `admit`, `reason` and `sound`, and the
+settings model has no field for a banner. A test that only checked "no banner is planned" would pass just
+as well if the code were present but unreachable — the key set is the stronger claim.
 
-`src/settings.js` carries one constant:
-
-```js
-export const NOTIFICATIONS_ENABLED = false
-```
-
-With it false, no banner is planned, the row renders no control for one, and the UI strings for it are
-absent from the dictionaries. Nothing imports either module, which `verify-client` checks by asserting
-the layout. `engine.js` and `admit()` take the switch as a **parameter** rather than reading the
-constant, which is what keeps both states reachable from the suite on every run instead of only the
-one that ships.
-
-### Why it is off, measured on this platform
+### Why it was removed, measured on this platform
 
 - The desktop shell installs **no permission request handler**, so
   `Notification.requestPermission()` resolves immediately to `denied` with no prompt — and it
@@ -119,10 +113,24 @@ one that ships.
 - The shell's own notifications are raised in the **main process** — its mandatory update prompt calls
   Electron's `Notification` there, not the renderer's Web API.
 
-A channel whose success cannot be observed, and whose failure is indistinguishable from success, is
-not a feature. Turning it on properly needs a host-side bridge to the main process, which the shell
-would have to expose — a client plugin cannot reach Electron. That is a change to the application, not
-to this bundle.
+A channel whose success cannot be observed, and whose failure is indistinguishable from success, is not
+a feature: it shipped a button that reported "sent" and showed nothing. Doing it properly needs a
+host-side bridge to the main process, which the shell would have to expose — a client plugin cannot
+reach Electron. That is a change to the application, not to this bundle, and until then the honest
+plugin is one that does one thing.
+
+### Turning the whole plugin off is the plugin manager's job
+
+There is deliberately no plugin-wide switch in the settings row. dsh's own plugin manager enables and
+disables a plugin by editing the profile's `dsh.profile.bundles`; that is the only place a
+plugin-wide on/off belongs, and a second switch meant two places to look when the plugin was silent.
+The one control here that means "silence everything for now" is *when sound plays* set to `never`, which
+sits with the other rules about when the bell may ring.
+
+Note what the manager's toggle actually does, since it shapes the advice in the README:
+`loadProfileDirectory` reads the bundles list **once at boot** and nothing watches it, so disabling a
+plugin takes effect only after a restart — and it also removes the settings page, because the page is
+part of the plugin.
 
 ## Checked facts about the client services
 

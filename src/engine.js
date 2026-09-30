@@ -63,18 +63,13 @@ export function planEvent(input) {
   const gain = stateGain(settings, event.kind)
   const voice = stateVoice(settings, event.kind)
 
-  // The sound: two gates in series, and they answer different questions. `admit`
-  // said this state is configured to make a noise at all; this says whether now is
-  // a moment it may be audible. A chime admitted while the window was hidden and
-  // played while the user is reading the screen is exactly the case the
-  // `background` scope exists to prevent, and the two moments can differ because a
-  // plan is made and then performed.
-  const wantsSound = state.sound === true && settings.soundScope !== 'off'
+  // The sound: `admit` has already refused a globally muted plugin and a card whose bell is off, so
+  // what is left to decide is whether now is a moment the sound may be *heard*. A chime admitted while
+  // the window was hidden and played while the user is reading the screen is exactly the case the
+  // `background` scope exists to prevent, and the two moments can differ because a plan is made and
+  // then performed.
   const mayBeAudible = soundAllowed(settings, input.visibility ?? {})
-  const sound =
-    wantsSound && mayBeAudible && gain > 0
-      ? { melody: state.melody, voice, gain, kind: event.kind }
-      : undefined
+  const sound = mayBeAudible && gain > 0 ? { melody: state.melody, voice, gain, kind: event.kind } : undefined
 
   return {
     admit: true,

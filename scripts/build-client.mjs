@@ -101,7 +101,6 @@ const ENVELOPE_EXPORTS = [
   'describePlan',
   // settings.js
   'SOUND_SCOPES',
-  'NOTIFICATIONS_ENABLED',
   'STATE_FIELDS',
   'GLOBAL_FIELDS',
   'STATE_DEFAULTS',

@@ -10,7 +10,7 @@ plugin plays a chime you can hear from across the room.
 
 ## What it adds
 
-*Settings → General* gains a **Session notifications** row: a master switch, the global settings,
+*Settings → General* gains a **Session notifications** row: the global settings,
 and then one card per state.
 
 | State | Plays when | Default sound |
@@ -89,12 +89,18 @@ deletes the checkout behind it.
 
 ## Settings
 
+### Turning it off without uninstalling
+
+Set **When sound plays** to `off`: every card goes silent and every setting is kept. To switch the
+plugin itself off, use dsh's own plugin manager — that edits the profile's bundles list and needs an
+application restart.
+
 Everything lives in one row under *Settings → General*:
 
-- **Master switch** — off means no card makes a sound.
 - **Master volume** — multiplies each card's own volume, so both numbers matter.
 - **When sound plays** — `background` (the default) chimes only while the window is hidden or
-  unfocused, `always` chimes regardless, `off` mutes every card without changing any of them.
+  unfocused, `always` chimes regardless, and `off` is the **silence everything** switch: it stops every
+  card without changing any of them.
 - **Minimum gap between sounds** — stops several chimes landing on top of each other, in
   milliseconds.
 - **Do not repeat the same state within** — rate-limits a session that flaps between states.

@@ -20,7 +20,6 @@ import { unknownFields } from '../src/templates.js'
 import {
   GLOBAL_DEFAULTS,
   GLOBAL_FIELDS,
-  NOTIFICATIONS_ENABLED,
   SETTINGS_VERSION,
   SOUND_SCOPES,
   STATE_DEFAULTS,
@@ -148,17 +147,23 @@ test('every roster field is reachable and documented', () => {
     assert.equal(typeof field.label, 'string', `${field.id} needs a label`)
     assert.equal(typeof field.hint, 'string', `${field.id} needs a hint`)
   }
-  // The two rosters are disjoint by construction: a global field and a state
-  // field with the same name would make the card's meaning position-dependent.
+  // The two rosters are disjoint by construction: a global field and a state field with the same name
+  // would make a card's meaning depend on position. They used to share exactly one name — \`enabled\`,
+  // the card's switch and the plugin-wide one — and the plugin-wide one is gone, so now they share none.
   const globalIds = new Set(GLOBAL_FIELDS.map((field) => field.id))
   const shared = STATE_FIELDS.filter((field) => globalIds.has(field.id)).map((field) => field.id)
-  assert.deepEqual(shared, ['enabled'], 'only `enabled` names both a card and the master switch')
+  assert.deepEqual(shared, [], 'no field name may mean two things')
 })
 
-test('the master switch silences every card', () => {
-  const settings = resolveSettings({ enabled: false })
+test('the global mute silences every card', () => {
+  // The one control that means "silence everything for now". Turning the whole plugin off is dsh's
+  // plugin manager's job, so this plugin has no switch of its own for it.
+  const settings = resolveSettings({
+    soundScope: 'off',
+    states: Object.fromEntries(STATE_KINDS.map((kind) => [kind, { enabled: true }])),
+  })
   for (const kind of STATE_KINDS) {
-    assert.deepEqual(admit(kind, settings, { now: 0 }), { allowed: false, reason: 'master-off' })
+    assert.deepEqual(admit(kind, settings, { now: 0 }), { allowed: false, reason: 'global-mute' })
   }
 })
 
@@ -168,36 +173,15 @@ test("a card's own switch silences that card alone", () => {
   assert.equal(admit('question', settings, {}).allowed, true)
 })
 
-test('a card with both channels off is switched off, not redirected', () => {
-  const settings = resolveSettings({
-    states: { done: { sound: false, notification: false } },
-  })
-  const outcome = admit('done', settings, {})
-  assert.deepEqual(outcome, { allowed: false, reason: 'no-channel' })
+test('the plugin-wide switch is not part of the configuration at all', () => {
+  // Asserted rather than assumed, because the failure mode is silent: a leftover \`enabled\` key in the
+  // durable document would resolve to false and mute the plugin with nothing on screen to explain it.
+  const resolved = resolveSettings({ enabled: false })
+  assert.equal(Object.hasOwn(resolved, 'enabled'), false, 'the durable configuration has no plugin switch')
+  // And a hand-edited document carrying one cannot silence the plugin.
+  assert.equal(admit('question', resolved, {}).allowed, true, 'a stray key must not mute the plugin')
 })
 
-test('a card with nothing it could do is switched off rather than admitted and silent', () => {
-  // "Nothing it could do" is now exactly one condition, because there is one channel: the bell is off,
-  // either on the card or for every card at once. Admitting it would report the state as on while
-  // nothing happens about it.
-  assert.equal(admit('question', resolveSettings({ soundScope: 'off' }), {}).reason, 'no-channel')
-  assert.equal(admit('question', resolveSettings({ states: { question: { sound: false } } }), {}).reason, 'no-channel')
-  // And a card that still has its bell is unaffected by either of the above.
-  assert.equal(admit('question', resolveSettings({}), {}).allowed, true)
-  // Per *state*, not per call: another state's bell being off says nothing about this one.
-  assert.equal(admit('question', resolveSettings({ states: { done: { sound: false } } }), {}).allowed, true)
-})
-
-test('the two channels are switched off independently, and a card with neither is off', () => {
-  // The mirror of the test above, and the reason `notificationsEnabled` is a fact rather than a
-  // module constant read inside `admit`: with both channels dark there is nothing this state
-  // could do, so it is switched off rather than admitted and then silent — a state the plugin
-  // would report as on while doing nothing about it.
-  const bellsOff = resolveSettings({ soundScope: 'off' })
-  assert.equal(admit('question', bellsOff, { notificationsEnabled: false }).reason, 'no-channel')
-  // A card that still has its bell is unaffected by the banner channel being dark.
-  assert.equal(admit('question', resolveSettings({}), { notificationsEnabled: false }).allowed, true)
-})
 
 test('the plugin says nothing about the session the user is already reading', () => {
   const settings = resolveSettings({})
@@ -340,11 +324,25 @@ test('the failed and running phrases are the classical quotations they claim to 
   }
 })
 
-test('the notification channel is declared off, and nothing live depends on it', () => {
-  // The switch, asserted where it is declared rather than only where it is used. `settings.js` is the
-  // one place it lives; `engine.test.mjs` proves the engine plans a sound and nothing else, and
-  // `verify-client` proves the code it would have enabled is not in the shipped bundle at all. What
-  // this test adds is the declaration itself, so that deleting the switch is a deliberate change
-  // rather than something that happens while tidying.
-  assert.equal(NOTIFICATIONS_ENABLED, false, 'the notification channel ships switched off')
+test('the notification channel is absent, not merely switched off', () => {
+  // The channel was built and then removed — code, schema and interface. What this asserts is the part
+  // that is easy to get wrong when removing a feature: that no *name* of it survives in the
+  // configuration, because a leftover field is a field that silently does something.
+  //
+  // The rest is asserted where it can actually fail: `engine.test.mjs` proves a plan is a sound and
+  // nothing else, `verify-client` proves the plan's own keys are exactly `admit`/`reason`/`sound` and
+  // that the card renders no banner control, and `verify-host` proves the durable schema has no field
+  // for one.
+  for (const field of GLOBAL_FIELDS) {
+    assert.ok(
+      !/notification/i.test(field.id),
+      `the global roster must not name the removed channel (found "${field.id}")`,
+    )
+  }
+  for (const field of STATE_FIELDS) {
+    assert.ok(
+      !/^(notification|title|body)$/u.test(field.id),
+      `the state roster must not name the removed channel (found "${field.id}")`,
+    )
+  }
 })

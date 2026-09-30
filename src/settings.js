@@ -20,34 +20,32 @@ import { DEFAULT_VOICE, VOICE_NAMES } from './sound.js'
 import { STATE_KINDS } from './states.js'
 
 /**
- * Whether the system notification channel is live.
+ * Why there is no system notification channel here.
  *
- * **Off, in code, deliberately.** The channel is kept rather than deleted so it can be turned
- * back on in one place if the platform ever grows a way to make it work — and it is a constant
- * rather than a setting so that it cannot be half-enabled from the interface while it does not
- * work.
+ * The plugin plays a sound, and only a sound. A banner channel was built and then removed — not
+ * switched off behind a flag, removed: the code is not in this module, not in the bundle, and not in
+ * the settings model. The measurements below are what decided that, and they are recorded because they
+ * are the reason not to build it again the same way.
  *
- * Why it is off, measured rather than assumed, in the desktop shell:
+ * Measured in the desktop shell rather than assumed:
  *
  * - the shell installs **no permission request handler**, so `Notification.requestPermission()`
- *   resolves immediately to `denied` with no prompt and *consumes* the `default` — a plugin that
- *   asks destroys the very permission it is trying to obtain;
- * - `Notification.permission` then reads `denied` while `new Notification(...)` still
- *   *constructs successfully*, so from inside the page the plugin cannot tell whether a banner
- *   was shown or whether the operating system dropped it;
- * - and the shell's own notifications are raised in the **main process** — its mandatory update
- *   prompt calls Electron's `Notification` there, not the renderer's Web API.
+ *   resolves immediately to `denied` with no prompt and *consumes* the `default` — a plugin that asks
+ *   destroys the very permission it is trying to obtain. This plugin shipped that bug: pressing its
+ *   test button turned a `default` into a `denied`;
+ * - `Notification.permission` then reads `denied` while `new Notification(...)` still *constructs
+ *   successfully*, so from inside the page there is no way to tell a banner that was shown from one
+ *   the operating system dropped;
+ * - and the shell's own notifications are raised in the **main process** — its mandatory update prompt
+ *   calls Electron's `Notification` there, not the renderer's Web API.
  *
- * A channel whose success cannot be observed and whose failure is indistinguishable from
- * success is not a feature. Shipping it produced a test button that reported "sent" and showed
- * nothing.
+ * A channel whose success cannot be observed, and whose failure is indistinguishable from success, is
+ * not a feature. Shipping it produced a button that reported "sent" and showed nothing.
  *
- * Turning it on properly needs a host-side bridge to the main process: the shell has to expose
- * one, because a client plugin cannot reach Electron. That is a change to the application, not
- * to this bundle — and everything the channel needs is below, kept working and tested, so that
- * bridging it is the only remaining step.
+ * Doing it properly needs a bridge to the main process, which the shell would have to expose — a client
+ * plugin cannot reach Electron. That is a change to the application. Until then this plugin does one
+ * thing, and does it: it makes a sound.
  */
-export const NOTIFICATIONS_ENABLED = false
 
 /**
  * When a sound is allowed to be audible at all.
@@ -133,6 +131,7 @@ export const STATE_DEFAULTS = {
     melody: 'E4:230ms E4:230ms F4:230ms G4:230ms G4:230ms F4:230ms E4:230ms D4:460ms',
   },
   running: {
+    enabled: false,
     // The one card that ships switched off, and the reason the card exists at all: a turn
     // *starting* is not something to interrupt anyone for, so the shipped answer is no. A user
     // who wants feedback that work began turns it on, and that is a decision the card can
@@ -157,7 +156,10 @@ export const STATE_DEFAULTS = {
  * `setTimeout` and a timer-based gap fires late or not at all.
  */
 export const GLOBAL_DEFAULTS = {
-  enabled: true,
+  // No plugin-wide switch here. Turning the plugin off is what dsh's own plugin manager does, and this
+  // object is the durable configuration: a field with no control and no schema entry is exactly the kind
+  // of unreachable setting that took three passes to clear out of the interface.
+  //
   // Full, like every state's own level. The two multiply, so a master below 1 would mean a fresh
   // install does not actually play at the volume its cards claim — and the knob exists for a user
   // who wants things quieter than the card they are configuring, not for a default nobody chose.
@@ -182,7 +184,7 @@ export const SETTINGS_VERSION = 1
  * prevented from inventing a field nobody reads.
  */
 export const STATE_FIELDS = [
-  { id: 'enabled', kind: 'boolean', label: 'Alert for this state', hint: 'the card’s own master switch' },
+  { id: 'enabled', kind: 'boolean', label: 'Alert for this state', hint: 'this card’s own switch' },
   { id: 'sound', kind: 'boolean', label: 'Play a sound', hint: 'this state’s bell' },
   { id: 'volume', kind: 'number', min: 0, max: 1, label: 'Volume', hint: 'this state’s own level' },
   { id: 'voice', kind: 'choice', values: VOICE_NAMES, label: 'Timbre', hint: 'what it sounds like' },
@@ -191,7 +193,6 @@ export const STATE_FIELDS = [
 
 /** The global field roster, in the order the section lists it. */
 export const GLOBAL_FIELDS = [
-  { id: 'enabled', kind: 'boolean', label: 'Enable notifications', hint: 'the plugin’s master switch' },
   { id: 'masterVolume', kind: 'number', min: 0, max: 1, label: 'Master volume', hint: 'applies to every state’s sound' },
   { id: 'soundScope', kind: 'choice', values: SOUND_SCOPES, label: 'When sound plays', hint: 'the bell channel' },
   { id: 'minGapMs', kind: 'number', min: 0, max: 30_000, label: 'Minimum gap between sounds', hint: 'milliseconds' },
@@ -264,7 +265,7 @@ function resolveRecord(fields, defaults, stored) {
  * all — a string where a map belongs — yields the shipped defaults.
  *
  * @param section - the stored section, or nothing.
- * @returns `{ version, enabled, masterVolume, soundScope, minGapMs,
+ * @returns `{ version, masterVolume, soundScope, minGapMs,
  */
 export function resolveSettings(section) {
   const stored = section !== null && typeof section === 'object' ? section : {}
@@ -299,20 +300,21 @@ export function defaultSection() {
 /**
  * Whether a state's configuration is worth acting on for one event.
  *
- * The order of these checks is the design, and every one of them is a decision
- * that has been wrong in some version of this feature somewhere:
+ * The order of these checks is the design, and every one of them is a decision that has been wrong in
+ * some version of this feature somewhere:
  *
- * 1. **The master switch, then the card's own.** Two switches in series, because
- *    "silence everything" and "silence this one state" are different intentions.
- * 2. **The state must have something to do.** A card with both channels off is
- *    not an error, it is a card that has been switched off — and the answer is
- *    "nothing", not "play the other channel".
- * 3. **The session the user is looking at.** When the window has focus and the
- *    session is the one on screen, the interface *is* the notification. This is
- *    the check that keeps the plugin from being annoying in the one situation
- *    where it has nothing to add.
- * 4. **The same session repeating.** A session can flap between states within
- *    seconds, and `repeatMs` is the user's answer to how much of that they want.
+ * 1. **The global mute, then the card's own.** "Silence everything for now" and "silence this one
+ *    state" are different intentions, and both live here: the first is `soundScope: 'off'`, the second
+ *    is the card's own switch. There was a third, a plugin-wide switch of this plugin's own, and it is
+ *    gone — dsh disables a plugin from its own manager, which is the only place a plugin-wide on/off
+ *    belongs, and a second answer to that question is a second thing to keep in sync.
+ * 2. **The state must have something to do.** A card with its bell off is not an error, it is a card
+ *    that has been switched off — and the answer is "nothing", not "play the other channel".
+ * 3. **The session the user is looking at.** When the window has focus and the session is the one on
+ *    screen, the interface *is* the notification. This is the check that keeps the plugin from being
+ *    annoying in the one situation where it has nothing to add.
+ * 4. **The same session repeating.** A session can flap between states within seconds, and `repeatMs`
+ *    is the user's answer to how much of that they want.
  *
  * @param kind - the state the event is about.
  * @param settings - resolved settings.
@@ -321,13 +323,14 @@ export function defaultSection() {
  */
 export function admit(kind, settings, facts) {
   const state = settings?.states?.[kind]
-  if (settings?.enabled !== true) return { allowed: false, reason: 'master-off' }
   if (state === undefined) return { allowed: false, reason: 'unknown-state' }
   if (state.enabled !== true) return { allowed: false, reason: 'card-off' }
-  // There is one channel. A card with its bell switched off — or with the bell muted globally —
-  // has nothing it could do, so it is switched off rather than admitted and then silent.
-  const wantsSound = state.sound === true && settings.soundScope !== 'off'
-  if (!wantsSound) return { allowed: false, reason: 'no-channel' }
+  // There is one channel, and the global mute closes it for every card: `soundScope` is where that
+  // lives. A plugin-wide switch sat here too, and it was pure duplication — dsh already disables a
+  // plugin from its own manager, which is the *only* place a plugin-wide on/off belongs, and this one
+  // added a second answer to a question that already had one.
+  if (settings.soundScope === 'off') return { allowed: false, reason: 'global-mute' }
+  if (state.sound !== true) return { allowed: false, reason: 'no-channel' }
   if (facts?.skipFocusedSession === true && settings.skipFocusedSession === true && facts.isMain === true) {
     return { allowed: false, reason: 'focused-session' }
   }

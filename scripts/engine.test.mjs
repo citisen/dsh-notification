@@ -17,6 +17,7 @@ import test from 'node:test'
 
 import { createSpeechLog, describePlan, firstAudible, gapElapsed, planEvent } from '../src/engine.js'
 import { GLOBAL_DEFAULTS, STATE_DEFAULTS, resolveSettings } from '../src/settings.js'
+import { STATE_KINDS } from '../src/states.js'
 
 /** A window the user is not looking at. */
 const HIDDEN = { visible: false, focused: false }
@@ -69,10 +70,28 @@ test('a shipped card plans its sound at the configured level', () => {
   )
 })
 
-test('the master switch silences every card, with a reason the row can print', () => {
-  const plan = planFor({ settings: resolveSettings({ enabled: false }) })
-  assert.deepEqual({ admit: plan.admit, reason: plan.reason }, { admit: false, reason: 'master-off' })
-  assert.equal(plan.sound, undefined)
+test('the global mute silences every card, with a reason the row can print', () => {
+  // `soundScope: 'off'` is the one control that means "silence everything for now". There used to be a
+  // plugin-wide switch above the settings doing the same job, and it is gone: dsh disables a plugin from
+  // its own manager, so a second switch was a second place to look when the plugin was silent.
+  //
+  // Every card is turned on for this, because the question is what the *mute* does — a card that ships
+  // switched off would answer `card-off`, and the test would pass without reaching the rule it is about.
+  // That ordering is deliberate: the checks run from the most general to the most specific, so a card the
+  // user switched off says so rather than blaming the mute.
+  const settings = resolveSettings({
+    soundScope: 'off',
+    states: Object.fromEntries(STATE_KINDS.map((kind) => [kind, { enabled: true }])),
+  })
+  for (const kind of STATE_KINDS) {
+    const plan = planFor({ event: event({ kind }), settings })
+    assert.deepEqual(
+      { admit: plan.admit, reason: plan.reason },
+      { admit: false, reason: 'global-mute' },
+      `${kind} must be muted by the global mute`,
+    )
+    assert.equal(plan.sound, undefined)
+  }
 })
 
 test("a card's own switch silences that card alone", () => {
@@ -100,7 +119,7 @@ test('the bell is gated on the window', () => {
 
   const off = planFor({ settings: resolveSettings({ soundScope: 'off' }) })
   assert.equal(off.sound, undefined)
-  assert.equal(off.reason, 'no-channel')
+  assert.equal(off.reason, 'global-mute')
 })
 
 test('the plugin says nothing about the session the user is reading', () => {
@@ -181,7 +200,7 @@ test('a plan describes itself in the words the card shows', () => {
   assert.match(played, /bell/u)
   assert.match(played, /100%/u)
 
-  assert.match(describePlan(planFor({ settings: resolveSettings({ enabled: false }) }), says), /master-off/u)
+  assert.match(describePlan(planFor({ settings: resolveSettings({ soundScope: 'off' }) }), says), /global-mute/u)
   const silentCard = planFor({
     settings: resolveSettings({ states: { done: { sound: false } } }),
     event: event({ kind: 'done' }),

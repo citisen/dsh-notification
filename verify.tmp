@@ -632,80 +632,76 @@ assert.ok(
   'the levels must render as number fields',
 )
 
-// The removed channel's controls must not be rendered anywhere — no banner switch, no template
-// fields, no placeholder legend. This was got wrong twice while the channel existed: first only the tab
-// was hidden while the per-card switch stayed on every card, and then the switch was removed from the
-// card but its two template fields stayed. Both versions looked right in a diff and wrong on screen,
-// and the card is now asserted unconditionally rather than behind a switch that could hide the check
-// along with the feature.
-// The notification channel is switched off in code, so its controls must not be rendered anywhere.
-// This was got wrong twice: first only the tab was hidden while the per-card switch stayed on every
-// card, and then the switch was removed from the card but its two template fields stayed. Both
-// versions looked right in a diff and wrong on screen.
-//
-// The probe counts **checkbox inputs**, because that is what a user clicks. Two earlier formulations
-// passed for the wrong reasons: a `labelKey` is a prop of the `Check` *component*, so the rendered
-// tree has the `<label>` and `<input>` it produced and not the key; and searching for the label
-// *string* finds nothing ever, since a label is never a text node.
-const countCheckboxes = (node, total = 0) => {
-  if (node === null || typeof node !== 'object') return total
-  if (!Array.isArray(node) && node.type === 'input' && node.props?.type === 'checkbox') total += 1
-  for (const child of Array.isArray(node) ? node : (node.children ?? [])) {
-    total = countCheckboxes(child, total)
+if (!exports_.NOTIFICATIONS_ENABLED) {
+  // The notification channel is switched off in code, so its controls must not be rendered anywhere.
+  // This was got wrong twice: first only the tab was hidden while the per-card switch stayed on every
+  // card, and then the switch was removed from the card but its two template fields stayed. Both
+  // versions looked right in a diff and wrong on screen.
+  //
+  // The probe counts **checkbox inputs**, because that is what a user clicks. Two earlier formulations
+  // passed for the wrong reasons: a `labelKey` is a prop of the `Check` *component*, so the rendered
+  // tree has the `<label>` and `<input>` it produced and not the key; and searching for the label
+  // *string* finds nothing ever, since a label is never a text node.
+  const countCheckboxes = (node, total = 0) => {
+    if (node === null || typeof node !== 'object') return total
+    if (!Array.isArray(node) && node.type === 'input' && node.props?.type === 'checkbox') total += 1
+    for (const child of Array.isArray(node) ? node : (node.children ?? [])) {
+      total = countCheckboxes(child, total)
+    }
+    return total
   }
-  return total
-}
-const card = exports_.StateCard({
-  t,
-  kind: 'question',
-  // The shipped defaults, which *do* carry the dormant banner preference — so a card that renders
-  // it would render it here. That is what makes this an assertion about the interface rather than
-  // about the state object.
-  state: exports_.STATE_DEFAULTS.question,
-  count: 0,
-  defaults: exports_.STATE_DEFAULTS.question,
-  onChange: () => undefined,
-  onAudition: () => undefined,
-  onTest: () => undefined,
-})
-// "Alert for this state" and "Play a sound": the bell's two switches, and nothing else.
-const renderedCard = renderTree(card)[0]
-assert.equal(
-  countCheckboxes(renderedCard),
-  2,
-  'the card must render the bell switches and no banner switch',
-)
-// And the templates, which are the other half of the same channel. The card is rendered before this
-// is counted: a `TextField` is a component, so its `<input>` only exists in the rendered tree.
-const fields = collect(renderedCard, [])
-assert.ok(
-  !fields.some((node) => String(node.props?.className ?? '').includes('dsh-notification-tokens')),
-  'the placeholder legend belongs to the dormant channel',
-)
-assert.equal(
-  fields.filter((node) => node.type === 'input' && node.props?.type === 'text').length,
-  1,
-  'the card renders one text field — the melody — and no banner template fields',
-)
+  const card = exports_.StateCard({
+    t,
+    kind: 'question',
+    // The shipped defaults, which *do* carry the dormant banner preference — so a card that renders
+    // it would render it here. That is what makes this an assertion about the interface rather than
+    // about the state object.
+    state: exports_.STATE_DEFAULTS.question,
+    count: 0,
+    defaults: exports_.STATE_DEFAULTS.question,
+    onChange: () => undefined,
+    onAudition: () => undefined,
+    onTest: () => undefined,
+  })
+  // "Alert for this state" and "Play a sound": the bell's two switches, and nothing else.
+  const renderedCard = renderTree(card)[0]
+  assert.equal(
+    countCheckboxes(renderedCard),
+    2,
+    'the card must render the bell switches and no banner switch',
+  )
+  // And the templates, which are the other half of the same channel. The card is rendered before this
+  // is counted: a `TextField` is a component, so its `<input>` only exists in the rendered tree.
+  const fields = collect(renderedCard, [])
+  assert.ok(
+    !fields.some((node) => String(node.props?.className ?? '').includes('dsh-notification-tokens')),
+    'the placeholder legend belongs to the dormant channel',
+  )
+  assert.equal(
+    fields.filter((node) => node.type === 'input' && node.props?.type === 'text').length,
+    1,
+    'the card renders one text field — the melody — and no banner template fields',
+  )
 
-// One button for the sound and one to reset. Two buttons a user cannot tell apart — "Play" and
-// "Test", where the second planned a sound and printed a sentence without playing anything — is what
-// the card used to show, and it is the half of the layout that a node count can hold in place.
-const buttons = fields.filter((node) => node.type === 'button')
-assert.equal(buttons.length, 2, 'the card offers Play and Reset, and nothing else')
-const labels = buttons.map((node) => JSON.stringify(node.children))
-assert.ok(
-  labels.some((text) => text.includes(label('notification.play'))),
-  'one of the buttons must be the play button',
-)
-assert.ok(
-  labels.some((text) => text.includes(label('notification.reset'))),
-  'one of the buttons must be reset',
-)
-assert.ok(
-  !labels.some((text) => text.includes('测试') || text.includes('Test')),
-  'no button may be labelled a test: the action it named is gone',
-)
+  // One button for the sound and one to reset. Two buttons a user cannot tell apart — "Play" and
+  // "Test", where the second planned a sound and printed a sentence without playing anything — is what
+  // the card used to show, and it is the half of the layout that a node count can hold in place.
+  const buttons = fields.filter((node) => node.type === 'button')
+  assert.equal(buttons.length, 2, 'the card offers Play and Reset, and nothing else')
+  const labels = buttons.map((node) => JSON.stringify(node.children))
+  assert.ok(
+    labels.some((text) => text.includes(label('notification.play'))),
+    'one of the buttons must be the play button',
+  )
+  assert.ok(
+    labels.some((text) => text.includes(label('notification.reset'))),
+    'one of the buttons must be reset',
+  )
+  assert.ok(
+    !labels.some((text) => text.includes('测试') || text.includes('Test')),
+    'no button may be labelled a test: the action it named is gone',
+  )
+}
 
 
 // The controls write through the form, fenced by the revision the store holds.
