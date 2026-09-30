@@ -154,5 +154,28 @@ cmd /c mklink /J node_modules\@citisen\dsh-notification D:\path\to\dsh-notificat
 #     name: '@citisen/dsh-notification'
 ```
 
+### What `dsh plugin remove` does, measured
+
+Run on this machine against the real profile, in this order:
+
+| Step | Result |
+| --- | --- |
+| `dsh plugin remove @citisen/dsh-notification` | exit 0; the dependency left `package.json`, and `reconcile()` pruned the `dsh.profile.bundles` entry **without being asked to** |
+| the `cordis.patch.yml` row | **still there** — nothing on the removal path touches the patch layers |
+| the directory junction | **still there** — `pnpm remove` does not prune a `link:` junction on Windows |
+| `dsh plugin list` | `@citisen/dsh-font` only; the plugin is gone from the roster |
+
+So the plugin is fully unloaded by the command alone, and two artifacts outlive it. Both are harmless
+to loading — the bundles list is what selects a plugin, and the patch row's `config:` block is merely
+ignored once its target entry is gone — but the row is not silent about it. Booting a profile that has
+the row without the bundle prints, on every start:
+
+```
+dsh: [.../cordis.patch.yml] patch: entry "notification" not found
+```
+
+That message is the observable form of "the patch layer outlives the plugin", and it is why the
+README's uninstall section has a second step at all.
+
 The row id and the client half's `NOTIFICATION_NAMESPACE` must be the same string, `notification` —
 that is how the settings model finds the configuration.

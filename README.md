@@ -37,6 +37,56 @@ dsh plugin --profile desktop add @citisen/dsh-notification
 
 Then restart the application. Use `--profile web` for the browser profile.
 
+## Uninstall
+
+```sh
+dsh plugin --profile desktop remove @citisen/dsh-notification
+```
+
+Quit the application fully first — it manages the `desktop` profile, and the command refuses to touch
+a profile that is in use. The command removes the package, its entry in `dsh.profile.bundles`, and the
+installed copy of it.
+
+Then delete your settings, which the command cannot reach. The plugin's row carries a `config:` block
+holding everything you changed from the defaults, and it lives in your own patch file:
+
+```yaml
+# $DSH_HOME/profiles/desktop/cordis.patch.yml
+- id: notification
+  name: "@citisen/dsh-notification"
+  config:
+    masterVolume: 1
+    soundScope: always
+    # ...and the per-state settings
+```
+
+Delete that whole entry. **If you leave it, the plugin is gone but its configuration is not**, and
+every start prints this:
+
+```
+dsh: [.../cordis.patch.yml] patch: entry "notification" not found
+```
+
+It is a warning rather than a failure — the application still starts, and the settings are simply
+ignored — but it will say so on every launch until the entry is removed. If you want to keep those
+settings before deleting them, copy the block out of the file first.
+
+### If you installed from a local checkout
+
+`pnpm remove` does not prune a directory junction installed with `link:`, so the link survives the
+removal and points at your checkout. It does **not** keep the plugin loaded — the package is gone from
+the dependency list, the bundles list and the plugin roster — but it sits in `node_modules` and makes
+it look as though something is still installed. Delete the link by hand:
+
+```powershell
+# removes the link, not the checkout
+cmd /c rmdir "$env:USERPROFILE\.dsh\profiles\desktop\node_modules\@citisen\dsh-notification"
+```
+
+`rmdir` on a junction removes the link and leaves `D:\path\to\dsh-notification` untouched. Do **not**
+use `Remove-Item -Recurse` if you are unsure: on some PowerShell versions that follows the junction and
+deletes the checkout behind it.
+
 ## Settings
 
 Everything lives in one row under *Settings → General*:

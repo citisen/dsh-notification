@@ -34,6 +34,51 @@ dsh plugin --profile desktop add @citisen/dsh-notification
 
 然后重启应用。浏览器 profile 用 `--profile web`。
 
+## 卸载
+
+```sh
+dsh plugin --profile desktop remove @citisen/dsh-notification
+```
+
+**先把应用完全退出** —— `desktop` 这个 profile 由应用自己管理，占用中时命令会拒绝操作。这条命令
+会移除包本身、`dsh.profile.bundles` 里的那一项，以及安装出来的目录。
+
+然后还要自己删掉配置，这部分命令碰不到。插件那一行带着一个 `config:` 块，里面是你改过默认值的所有
+设置，它在**你自己的** patch 文件里：
+
+```yaml
+# $DSH_HOME/profiles/desktop/cordis.patch.yml
+- id: notification
+  name: "@citisen/dsh-notification"
+  config:
+    masterVolume: 1
+    soundScope: always
+    # ...以及各个状态的设置
+```
+
+把整段删掉。**如果留着它，插件是没了，但配置还在**，而且每次启动都会打印：
+
+```
+dsh: [.../cordis.patch.yml] patch: entry "notification" not found
+```
+
+它只是警告不是失败 —— 应用照常启动，那些设置被忽略 —— 但在你删掉这段之前，每次启动都会报。
+删掉之前想留个备份的话，先把这段复制出来。
+
+### 如果你是从本地检出装的
+
+用 `link:` 装出来的目录联接（junction），`pnpm remove` **不会**清理，它会留在 `node_modules` 里、
+指向你的检出。它**不会**让插件继续生效 —— 包已经从依赖表、bundles 表和插件名册里消失了 —— 但它
+待在那里会让人以为还装着东西。手动删掉这个链接：
+
+```powershell
+# 删的是链接，不是检出
+cmd /c rmdir "$env:USERPROFILE\.dsh\profiles\desktop\node_modules\@citisen\dsh-notification"
+```
+
+对目录联接执行 `rmdir` 只会删掉链接，`D:\path\to\dsh-notification` 原封不动。**不要**在不确定的时候
+用 `Remove-Item -Recurse`：某些 PowerShell 版本会跟着联接进去，把后面的检出一起删掉。
+
 ## 设置
 
 所有东西都在 *设置 → 通用* 的这一行里：
