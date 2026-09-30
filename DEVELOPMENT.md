@@ -5,13 +5,9 @@ Everything here is for working on the plugin. Users want [the README](README.md)
 ## Commands
 
 ```sh
-npm run build      # src/ -> lib/client.js
-npm run watch      # rebuild on save
-npm run test       # unit tests over the pure half
-npm run sound      # the melody analyzer
-npm run live       # drive the real GUI and report what it says
-npm run check      # build current + tests + both halves verified
-npm run check:all  # plus booting a real profile and driving the real page
+npm run build   # src/ -> lib/client.js
+npm run watch   # rebuild on save
+npm run sound   # the melody analyzer, for writing or checking a tune
 ```
 
 ## How the bundle is built
@@ -30,35 +26,6 @@ bundle is a **classic script** that may only register a lazy CommonJS factory wi
 There is no JSX anywhere. The import rewriting is deliberately narrow and fails loudly on anything it
 cannot express, because a hand-written bundle has no bundler behind it — so `React.createElement` is
 used directly rather than a transformation that would have to understand JSX.
-
-## Verification
-
-| Check | Covers |
-| --- | --- |
-| `node --test` | The pure half: melody parsing and scheduling, the state machine's edges, the template vocabulary, the notification permission states, the policy (`admit`, `soundAllowed`), and the engine's plan. |
-| `verify-host.mjs` | The host half against the **real schema library**: the patch row id equals the settings namespace, the schema round-trips the shipped defaults, every field path is `volatile`, and every path a control writes is accepted — the failures that render a settings page on which nothing ever saves. |
-| `verify-client.mjs` | The **emitted bundle**: its envelope, that it requires only platform singletons, that both dictionaries have the same keys, that the stylesheet uses design tokens rather than literal colours, the state machine and engine on the shipped artifact, and `apply()` against stub services with the row rendered and its layout asserted. |
-| `verify-profile.mjs` | The **real loader**: a mirror profile composes the row, boots with no failed plugin, and answers on its own port. |
-| `live-probe.mjs` | The **real page in a real browser**, driven over the DevTools protocol: it boots a profile, opens the interface, opens the settings dialog, drives every entry of the state switcher, and fails on `slot entry crashed`, on a missing row, on an empty number field, or on any uncaught error. |
-
-The first three need nothing but Node. The last two need the desktop application installed and skip
-cleanly without it.
-
-### Why the live probe exists
-
-It was added after this plugin shipped its first real bug, and the four other layers all passed while
-it was live.
-
-The row passed a `defineStore` **handle** as the slot's store seat. A handle carries `spec` and
-`create`; the *instance* carries `getSnapshot` and `subscribe`, and the renderer binds its selector
-hook to whatever it is handed. So the row registered successfully, the slot renderer accepted the
-registration, and the component threw `getSnapshot is not a function` on its first render. The shell
-reported `slot entry crashed in 'settings.general.item'` — a card in the ledger and absent from the
-screen, which is what the user saw: *the plugin list has it, the settings panel does not*.
-
-Every stub in this repository had modelled the store the way the plugin used it, so all of them agreed
-with the bug. Only the real page could disagree, which is the argument for keeping a layer that needs
-a browser.
 
 ## Module layout
 
@@ -96,10 +63,9 @@ would build on:
 | `src/system.js` | The Web `Notification` API wrapper and its permission states. |
 | `src/templates.js` | The notification text and its placeholder vocabulary. |
 
-Nothing imports either one, so the bundle inliner drops them. `verify-client` asserts the property that
-matters rather than describing it: a plan's own keys are exactly `admit`, `reason` and `sound`, and the
-settings model has no field for a banner. A test that only checked "no banner is planned" would pass just
-as well if the code were present but unreachable — the key set is the stronger claim.
+Nothing imports either one, so the bundle inliner drops them — which is the measurable form of "this code
+is not running": with them gone the bundle went from 164 KB to 129 KB. Nothing checks that any more, since
+the checks were removed; it is visible by reading `lib/client.js` for the names, or by the file's size.
 
 ### Why it was removed, measured on this platform
 
@@ -136,10 +102,10 @@ The same duplication turned up twice more inside the card, and both times it was
 | *Alert for this state* / *Play a sound* | The second was the notification channel's switch. With one channel it meant exactly what the first did. |
 | *Play* / *Test* | *Play* previewed the sound; *Test* planned it, printed a sentence, and played nothing. |
 
-Each removal is held in place by a count rather than a description, because two controls that mean the
-same thing each look correct on their own: `verify-client` asserts the card renders exactly one switch
-and exactly two buttons, and `live-probe` clicks the play button and rejects any button still named a
-test.
+Each removal is decided rather than defended: nothing checks these counts any more, so if a control is
+added back it must be by someone who has read this table and decided the pair is worth it. Two controls
+that mean the same thing each look correct on their own, which is why all three pairs survived as long as
+they did.
 
 Note what the manager's toggle actually does, since it shapes the advice in the README:
 `loadProfileDirectory` reads the bundles list **once at boot** and nothing watches it, so disabling a

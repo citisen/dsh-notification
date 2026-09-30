@@ -17,7 +17,7 @@ and then one card per state.
 | --- | --- | --- |
 | **Waiting for an answer** | the agent asked a question | Beethoven, Symphony No. 5 — the fate motif |
 | **Waiting for approval** | the agent asked for permission | Bach, Toccata and Fugue in D minor BWV 565 |
-| **Waiting for a plan review** | the agent proposed a plan | an ascending C-major arpeggio |
+| **Waiting for a plan review** | the agent proposed a plan | three taps on one note, then an octave above, held |
 | **Ended with an error** | the session's agent reported an error | the *Dies irae* plainchant |
 | **Finished** | a turn ended and you have not looked at it | Beethoven, Symphony No. 9 — "Ode to Joy" |
 | **Started** | a turn began | Mozart, Eine kleine Nachtmusik K. 525 — **off by default** |
@@ -211,7 +211,7 @@ Both can be turned off if you want the feedback anyway.
 
 ## Development
 
-See [DEVELOPMENT.md](DEVELOPMENT.md) for the build, the verification layers, and the design notes.
+See [DEVELOPMENT.md](DEVELOPMENT.md) for the build and the design notes.
 
 ## License
 

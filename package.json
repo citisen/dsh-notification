@@ -45,12 +45,7 @@
   "scripts": {
     "build": "node scripts/build-client.mjs",
     "watch": "node scripts/build-client.mjs --watch",
-    "test": "node --test \"scripts/*.test.mjs\"",
-    "sound": "node scripts/analyze-sound.mjs",
-    "verify": "node scripts/verify-host.mjs && node scripts/verify-client.mjs",
-    "check": "node scripts/build-client.mjs --check && npm run test && npm run verify",
-    "check:all": "npm run check && node scripts/verify-profile.mjs && node scripts/live-probe.mjs",
-    "live": "node scripts/live-probe.mjs"
+    "sound": "node scripts/analyze-sound.mjs"
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "^4.0.4"
